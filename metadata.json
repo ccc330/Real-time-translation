@@ -1,0 +1,6 @@
+{
+  "name": "Chinese-English Live Translator",
+  "description": "Minimalist Apple-style real-time face-to-face speech translator between Chinese and English with automatic language detection.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
