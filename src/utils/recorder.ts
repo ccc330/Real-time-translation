@@ -1,4 +1,6 @@
 export class AudioRecorder {
+  private static readonly BUFFER_SIZE = 1024;
+
   private audioContext: AudioContext | null = null;
   private mediaStream: MediaStream | null = null;
   private processorNode: ScriptProcessorNode | null = null;
@@ -28,7 +30,7 @@ export class AudioRecorder {
       this.sourceNode = this.audioContext.createMediaStreamSource(this.mediaStream);
       
       // Mono-in, Mono-out
-      this.processorNode = this.audioContext.createScriptProcessor(4096, 1, 1);
+      this.processorNode = this.audioContext.createScriptProcessor(AudioRecorder.BUFFER_SIZE, 1, 1);
 
       this.processorNode.onaudioprocess = (e) => {
         const inputData = e.inputBuffer.getChannelData(0);

@@ -1,7 +1,6 @@
-import React from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { Mic, Loader2, MicOff } from 'lucide-react';
-import { ConnectionStatus } from '../types';
+import { Mic, Square, Loader2 } from 'lucide-react';
+import { ConnectionStatus } from '@/types';
+import { cn } from '@/lib/utils';
 
 interface MicButtonProps {
   isRecording: boolean;
@@ -9,70 +8,34 @@ interface MicButtonProps {
   onClick: () => void;
 }
 
-export const MicButton: React.FC<MicButtonProps> = ({ isRecording, status, onClick }) => {
+export function MicButton({ isRecording, status, onClick }: MicButtonProps) {
   const isPending = status === 'connecting' || status === 'connected' || status === 'initializing_gemini';
   const isDisabled = status === 'disconnected' || status === 'error';
 
   return (
-    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-40 flex flex-col items-center select-none pointer-events-none">
-      {/* Container holding layout structures */}
-      <div className="relative pointer-events-auto">
-        <AnimatePresence>
-          {isRecording && (
-            <>
-              {/* Pulsing ring 1 */}
-              <motion.div
-                initial={{ scale: 0.9, opacity: 0.5 }}
-                animate={{ scale: 1.8, opacity: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ repeat: Infinity, duration: 2.0, ease: 'easeOut' }}
-                className="absolute inset-x-0 inset-y-0 rounded-full bg-white/5"
-              />
-              {/* Pulsing ring 2 */}
-              <motion.div
-                initial={{ scale: 0.9, opacity: 0.3 }}
-                animate={{ scale: 1.4, opacity: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ repeat: Infinity, duration: 2.0, delay: 0.7, ease: 'easeOut' }}
-                className="absolute inset-x-0 inset-y-0 rounded-full bg-white/10"
-              />
-            </>
-          )}
-        </AnimatePresence>
-
-        {/* Outer Circular Frame - Matching design HTML */}
-        <div className={`w-24 h-24 rounded-full bg-white/5 backdrop-blur-3xl border border-white/10 flex items-center justify-center shadow-[0_0_80px_rgba(255,255,255,0.05)] transition-all duration-300 ${
-          isRecording ? 'border-blue-500/30 shadow-[0_0_100px_rgba(59,130,246,0.15)]' : ''
-        }`}>
-          {/* Inner Primary Interactive Button */}
-          <motion.button
-            whileHover={!isDisabled ? { scale: 1.05 } : {}}
-            whileTap={!isDisabled ? { scale: 0.95 } : {}}
-            onClick={onClick}
-            disabled={isDisabled}
-            className={`w-16 h-16 rounded-full flex items-center justify-center transition-all duration-300 shadow-xl border relative z-10 ${
-              isDisabled
-                ? 'bg-neutral-900 border-neutral-800 text-neutral-600 cursor-not-allowed'
-                : isRecording
-                ? 'bg-white border-white text-black hover:bg-neutral-100 cursor-pointer'
-                : isPending
-                ? 'bg-neutral-800 border-neutral-700 text-neutral-400 cursor-wait'
-                : 'bg-white border-white text-black hover:bg-neutral-100 cursor-pointer'
-            }`}
-          >
-            {isPending ? (
-              <Loader2 className="w-6 h-6 animate-spin stroke-[2]" />
-            ) : isRecording ? (
-              <Mic className="w-6 h-6 animate-pulse text-black fill-current stroke-[2.5]" />
-            ) : isDisabled ? (
-              <MicOff className="w-6 h-6 text-neutral-600 stroke-[2.5]" />
-            ) : (
-              <Mic className="w-6 h-6 text-black stroke-[2.5]" />
-            )}
-          </motion.button>
-        </div>
-      </div>
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={isDisabled}
+      aria-label={isRecording ? '停止聆听' : '开始聆听'}
+      className={cn(
+        'relative grid size-16 place-items-center rounded-full border shadow-sm outline-none transition-all',
+        'focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px',
+        isDisabled && 'cursor-not-allowed border-border bg-muted text-muted-foreground',
+        !isDisabled && isRecording && 'border-transparent bg-destructive text-white',
+        !isDisabled && !isRecording && 'border-transparent bg-primary text-primary-foreground hover:bg-primary/90',
+      )}
+    >
+      {isRecording && (
+        <span className="absolute inset-0 animate-ping rounded-full border border-destructive/40" />
+      )}
+      {isPending ? (
+        <Loader2 className="size-6 animate-spin" />
+      ) : isRecording ? (
+        <Square className="size-5 fill-current" />
+      ) : (
+        <Mic className="size-6" />
+      )}
+    </button>
   );
-};
-
+}
