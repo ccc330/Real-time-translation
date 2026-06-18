@@ -50,7 +50,7 @@ export function KeyDialog({ open, onOpenChange, apiKey, onSave }: KeyDialogProps
             }}
           />
           <p className="text-xs text-muted-foreground">
-            在 <span className="font-medium">Google AI Studio</span> 生成，需已开通 Live API 访问权限。
+            使用已开通 Live API 访问权限的 Gemini API Key。
           </p>
         </div>
 
