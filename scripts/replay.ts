@@ -56,7 +56,8 @@ const translator =
 const session = startSonioxSession(fakeWs, {
   sonioxKey,
   translator,
-  idleCompleteMs: 750,
+  translateDebounceMs: 300,
+  translateMaxIntervalMs: 900,
   idlePendingMs: 2000,
   maxReconnect: 3,
 });

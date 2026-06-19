@@ -12,7 +12,10 @@ export interface SonioxOptions {
   sonioxKey: string;
   /** Primary translator (DeepSeek). If null, only Soniox built-in translation is used. */
   translator: Translator | null;
-  idleCompleteMs: number;
+  /** Debounce: translate this long after the last token (catches micro-pauses). */
+  translateDebounceMs: number;
+  /** Force a (re)translation at least this often during continuous speech. */
+  translateMaxIntervalMs: number;
   idlePendingMs: number;
   maxReconnect: number;
   /** Optional hard cap on audio seconds forwarded to Soniox (budget guard). */
@@ -37,6 +40,8 @@ interface LiveTurn {
   translatedText: string; // what we actually show (DeepSeek, or fallback)
   translationSeq: number;
   translateAbort: AbortController | null;
+  lastTranslateAt: number;
+  lastTranslatedSource: string;
 }
 
 const mapLang = (code: string | undefined, fallbackText: string): Lang => {
@@ -83,6 +88,8 @@ export function startSonioxSession(ws: WebSocket, opts: SonioxOptions): Session 
       translatedText: '',
       translationSeq: 0,
       translateAbort: null,
+      lastTranslateAt: 0,
+      lastTranslatedSource: '',
     };
     return turn;
   };
@@ -101,11 +108,15 @@ export function startSonioxSession(ws: WebSocket, opts: SonioxOptions): Session 
 
   const runTranslation = async () => {
     if (!turn || !opts.translator) return;
-    const text = turn.committedOriginal.trim();
+    // Translate the full *visible* original (committed + pending) so the caption
+    // grows live as the person speaks, rather than only after a clause finalizes.
+    const text = (turn.committedOriginal + turn.pendingOriginal).trim();
     if (!text) return;
 
     const t = turn;
     const turnId = t.id;
+    t.lastTranslateAt = Date.now();
+    t.lastTranslatedSource = text;
     const seq = ++t.translationSeq;
     t.translateAbort?.abort();
     const ac = new AbortController();
@@ -138,7 +149,8 @@ export function startSonioxSession(ws: WebSocket, opts: SonioxOptions): Session 
   const scheduleTimers = () => {
     if (translateTimer) clearTimeout(translateTimer);
     if (completeTimer) clearTimeout(completeTimer);
-    translateTimer = setTimeout(() => void runTranslation(), opts.idleCompleteMs);
+    // Short debounce: translate shortly after a micro-pause in speech.
+    translateTimer = setTimeout(() => void runTranslation(), opts.translateDebounceMs);
     completeTimer = setTimeout(() => completeTurn(), opts.idlePendingMs);
   };
 
@@ -204,8 +216,15 @@ export function startSonioxSession(ws: WebSocket, opts: SonioxOptions): Session 
       emitTurn();
       scheduleTimers();
 
-      // Translate immediately at a natural clause boundary instead of waiting for idle.
+      // Translate eagerly so captions keep up with live speech:
+      //  - immediately at a natural clause boundary, or
+      //  - at least every translateMaxIntervalMs during continuous speech, when
+      //    the original has grown since the last translation.
+      const visible = (t.committedOriginal + t.pendingOriginal).trim();
+      const grew = visible.length > t.lastTranslatedSource.length;
       if (newFinalOriginal && endsAtClauseBoundary(t.committedOriginal)) {
+        void runTranslation();
+      } else if (grew && Date.now() - t.lastTranslateAt >= opts.translateMaxIntervalMs) {
         void runTranslation();
       }
     }
@@ -243,6 +262,7 @@ export function startSonioxSession(ws: WebSocket, opts: SonioxOptions): Session 
       let msg: any;
       try { msg = JSON.parse(raw.toString()); } catch { return; }
       if (msg.error_code || msg.error_message) {
+        console.error(`Soniox error: code=${msg.error_code} message=${msg.error_message}`);
         send({ type: 'error', message: `Soniox 出错：${msg.error_message ?? msg.error_code}` });
         return;
       }
@@ -254,8 +274,10 @@ export function startSonioxSession(ws: WebSocket, opts: SonioxOptions): Session 
       console.error('Soniox WS error:', err?.message ?? err);
     });
 
-    sx.on('close', () => {
+    sx.on('close', (code: number, reason: Buffer) => {
       if (isClosed) return;
+      const why = reason?.toString() || '(no reason)';
+      console.log(`Soniox closed: code=${code} reason=${why}`);
       if (reconnects < opts.maxReconnect) {
         const delay = Math.min(2000, 250 * 2 ** reconnects);
         reconnects++;

@@ -29,7 +29,8 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ noServer: true });
 
 const PORT = Number(process.env.PORT) || 3000;
-const IDLE_COMPLETE_MS = Number(process.env.IDLE_COMPLETE_MS) || 750;
+const TRANSLATE_DEBOUNCE_MS = Number(process.env.TRANSLATE_DEBOUNCE_MS) || 300;
+const TRANSLATE_MAX_INTERVAL_MS = Number(process.env.TRANSLATE_MAX_INTERVAL_MS) || 900;
 const IDLE_PENDING_TRANSLATION_MS = Number(process.env.IDLE_PENDING_TRANSLATION_MS) || 2000;
 const TRANSLATE_FIRST_TOKEN_MS = Number(process.env.TRANSLATE_FIRST_TOKEN_MS) || 1200;
 const TRANSLATE_TIMEOUT_MS = Number(process.env.TRANSLATE_TIMEOUT_MS) || 2500;
@@ -104,7 +105,8 @@ wss.on('connection', (ws) => {
       session = startSonioxSession(ws, {
         sonioxKey: sKey,
         translator,
-        idleCompleteMs: IDLE_COMPLETE_MS,
+        translateDebounceMs: TRANSLATE_DEBOUNCE_MS,
+        translateMaxIntervalMs: TRANSLATE_MAX_INTERVAL_MS,
         idlePendingMs: IDLE_PENDING_TRANSLATION_MS,
         maxReconnect: SONIOX_MAX_RECONNECT,
         maxSessionAudioSec: MAX_SESSION_AUDIO_SEC,

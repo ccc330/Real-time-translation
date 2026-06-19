@@ -43,8 +43,9 @@ Keys live **only on the server** (no per-user key entry / KeyDialog). See `.env.
 - `TRANSLATE_MODEL` — default `deepseek-v4-flash`.
 - `TRANSLATE_FIRST_TOKEN_MS` (1200) / `TRANSLATE_TIMEOUT_MS` (2500) — translation latency budget:
   soft first-token deadline, then hard abort (→ Soniox fallback).
-- `IDLE_COMPLETE_MS` (750) / `IDLE_PENDING_TRANSLATION_MS` (2000) — utterance-endpointing timers
-  (see "Utterance completion" below).
+- `TRANSLATE_DEBOUNCE_MS` (300) / `TRANSLATE_MAX_INTERVAL_MS` (900) — live translation cadence:
+  debounce after a micro-pause, and the max gap between (re)translations during continuous speech.
+- `IDLE_PENDING_TRANSLATION_MS` (2000) — turn-complete idle timeout.
 - `SONIOX_MAX_RECONNECT` (3) — reconnect attempts on a dropped Soniox session.
 - `MAX_SESSION_AUDIO_SEC` — optional per-connection audio-seconds cap (budget guard).
 - `PORT` — default `3000`.
