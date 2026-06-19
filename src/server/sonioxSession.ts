@@ -33,8 +33,9 @@ interface LiveTurn {
   pendingOriginal: string;
   committedTranslation: string; // Soniox built-in (fallback source)
   pendingTranslation: string;
-  translatedText: string; // what we actually show (DeepSeek, or fallback)
+  translatedText: string; // what we actually show (DeepSeek, or Soniox until DeepSeek lands)
   translatedSource: string; // the original text the current translatedText was built from
+  usingDeepSeek: boolean; // once DeepSeek emits, it owns translatedText (no flicker back to Soniox)
   draining: boolean; // a translation worker is running for this turn
   drainPromise: Promise<void> | null;
   completing: boolean;
@@ -75,6 +76,7 @@ export function startSonioxSession(ws: WebSocket, opts: SonioxOptions): Session 
       pendingTranslation: '',
       translatedText: '',
       translatedSource: '',
+      usingDeepSeek: false,
       draining: false,
       drainPromise: null,
       completing: false,
@@ -110,13 +112,16 @@ export function startSonioxSession(ws: WebSocket, opts: SonioxOptions): Session 
         await opts.translator.translate(
           { text: source, originalLang: t.originalLang, context: [...recentContext], signal: t.abort.signal },
           (full) => {
-            if (turn === t) { t.translatedText = full; emitTurn(); }
+            // First DeepSeek token: take ownership of the caption (upgrades the
+            // Soniox text that was shown instantly). It won't flicker back.
+            if (turn === t) { t.usingDeepSeek = true; t.translatedText = full; emitTurn(); }
           },
         );
       } catch (err) {
         if (err instanceof TranslationAborted) break; // hard cleanup only
-        // DeepSeek failed/stalled -> fall back to Soniox's built-in translation.
+        // DeepSeek failed/stalled -> release the caption back to Soniox's live translation.
         if (turn === t) {
+          t.usingDeepSeek = false;
           const fb = (t.committedTranslation + t.pendingTranslation).trim();
           if (fb) { t.translatedText = fb; emitTurn(); }
         }
@@ -198,6 +203,14 @@ export function startSonioxSession(ws: WebSocket, opts: SonioxOptions): Session 
 
       const visible = (t.committedOriginal + t.pendingOriginal).trim();
       t.originalLang = resolveLang(lastOriginalLangCode, visible);
+
+      // Show Soniox's built-in translation instantly (it streams at ASR speed) so the
+      // translated caption appears with the original, instead of waiting for DeepSeek's
+      // first token. DeepSeek upgrades it a beat later (see drainTranslation).
+      if (!t.usingDeepSeek) {
+        const sx = (t.committedTranslation + t.pendingTranslation).trim();
+        if (sx) t.translatedText = sx;
+      }
 
       emitTurn();
       scheduleComplete();
