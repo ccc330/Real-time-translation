@@ -112,7 +112,9 @@
 | `src/server/sonioxSession.ts` | 核心：开 Soniox WS、喂音频、解析 token、跑 turn 状态机（§4）、调翻译、推帧、重连 | translator, types |
 | `src/server/translator.ts` | DeepSeek V4 Flash 流式翻译封装：prompt、上下文窗口、超时、取消、Soniox 兜底协同 | types |
 | `src/server/mock.ts` | 迁移现有 `startMockInterval` | types |
-| `src/utils/vad.ts`（客户端） | 能量门控 + hangover 拖尾，静音不发包 | — |
+| `src/server/textUtils.ts` | 迁移现有纯函数 `detectLang`、`mergeTranscript`（供 sonioxSession 与测试复用，避免被遗弃） | — |
+| `src/utils/vad.ts`（客户端，新增） | 能量门控 + hangover 拖尾，静音不发包 | — |
+| `src/utils/recorder.ts`（客户端，修改） | 接入 vad 门控；停说拖尾后触发 `audio_end` | vad |
 
 > 服务端模块用**相对 import**（不走 `@/*` 别名），避免 esbuild/tsx 别名解析问题；`@/*` 仍只用于客户端。
 
@@ -177,10 +179,10 @@ function startSonioxSession(ws, opts: {
      │ 超时/报错
      ▼
   兜底：Soniox 内置译文（已在流中，瞬时、套餐内零增量成本）→ 显示
-     │（可选）后台重试 DeepSeek，成功则 upsert 升级
      ▼
   极端：两者皆失败 → 保留原文 + 轻量"翻译重试中"占位，不阻塞 complete
   ```
+  > 不做"后台重试 DeepSeek 再 upsert 升级"——与"DeepSeek 为主、字幕不抖动"策略及 §10 非目标一致。
 - **策略（已确认）**：**DeepSeek 为主、Soniox 仅兜底**——正常只显示 DeepSeek 译文，字幕不抖动；仅 DeepSeek 失败时才回退 Soniox 译文。
 - **乱序防护**：`AbortSignal` + 每 turn 的 `translationSeq`，仅最新序号结果可写入。
 
@@ -213,6 +215,7 @@ function startSonioxSession(ws, opts: {
 ## 8. 客户端改动（最小化）
 
 - **移除 KeyDialog**：key 全在服务端；`init` 不再带 key。无 key 时服务端进 MOCK，前端显示一个轻量"演示模式"提示（复用现有 `mockInfo` 通道）。
+- **`/api/config` 重构**：现有 `GET /api/config` 返回 `hasServerKey` + Gemini 模型名供前端决定是否弹 KeyDialog。KeyDialog 移除后此端点陈旧——改为返回 `{ mock: boolean, sttModel, translateModel }`（仅用于前端展示模式徽标），或直接删除（由实现期定，二选一不影响架构）。
 - **新增 VAD**：`src/utils/vad.ts` 能量门控 + hangover，接入 `recorder.ts` 的 PCM 输出，仅说话时发包；停说时（拖尾后）触发 `audio_end`。
 - `App.tsx` / `TranslationPanel`：因 WS 协议不变，渲染逻辑基本不动；仅移除 KeyDialog 相关状态与入口。
 
@@ -223,7 +226,7 @@ function startSonioxSession(ws, opts: {
 1. **类型检查**：每次改后 `npm run lint`。
 2. **Mock 模式**：无 key 自动启用，零成本跑通"客户端→WS→字幕"全链路。
 3. **纯函数隔离验证**：`scripts/check-logic.ts`（`tsx` 跑的轻量 assert，不引框架）覆盖 `mergeTranscript`、子句边界判定、turn 状态机转移、语言标签兜底。
-4. **离线回放 harness**：`scripts/replay.ts` 读 wav/PCM 文件切块喂 `startSonioxSession`（假 `ws` 收帧），翻译层可注入 stub，验证 token 解析 + 状态机 + 翻译。
+4. **离线回放 harness**：`scripts/replay.ts` 读 wav/PCM 文件切块喂 `startSonioxSession`（假 `ws` 收帧），翻译层可注入 stub，验证 token 解析 + 状态机 + 翻译。（实现期需先确认 §11 的 Soniox 消息 schema，再据此写 fixture，避免返工。）
 5. **浏览器实测**：`npm run dev`，中英混说若干句，观察：原文即时、译文按句回填、思考停顿不断句、DeepSeek 失败时 Soniox 兜底。preview 工具截图留证。
 6. **预算核对**：日志对比开/关 VAD 的累计音频秒数，验证 ≤ $0.10/小时。
 
