@@ -1,4 +1,4 @@
-import { KeyRound, Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ConnectionStatus } from '@/types';
 import { cn } from '@/lib/utils';
@@ -8,7 +8,6 @@ interface TopbarProps {
   mockMode: boolean;
   model: string | null;
   hasMessages: boolean;
-  onOpenKey: () => void;
   onClear: () => void;
 }
 
@@ -21,7 +20,7 @@ function statusInfo(status: ConnectionStatus, mockMode: boolean) {
   return { dot: 'bg-emerald-500', label: '在线' };
 }
 
-export function Topbar({ status, mockMode, model, hasMessages, onOpenKey, onClear }: TopbarProps) {
+export function Topbar({ status, mockMode, model, hasMessages, onClear }: TopbarProps) {
   const s = statusInfo(status, mockMode);
 
   return (
@@ -38,9 +37,6 @@ export function Topbar({ status, mockMode, model, hasMessages, onOpenKey, onClea
       </div>
 
       <div className="flex items-center gap-1">
-        <Button variant="ghost" size="icon" onClick={onOpenKey} aria-label="设置 API Key">
-          <KeyRound className="size-4" />
-        </Button>
         <Button
           variant="ghost"
           size="icon"

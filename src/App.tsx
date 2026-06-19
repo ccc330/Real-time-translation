@@ -4,11 +4,8 @@ import { AudioRecorder } from '@/utils/recorder';
 import { Topbar } from '@/components/Topbar';
 import { TranslationPanel } from '@/components/TranslationPanel';
 import { MicButton } from '@/components/MicButton';
-import { KeyDialog } from '@/components/KeyDialog';
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
-
-const KEY_STORAGE = 'gemini_api_key';
 
 export default function App() {
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
@@ -16,12 +13,9 @@ export default function App() {
   const [model, setModel] = useState<string | null>(null);
   const [messages, setMessages] = useState<TranslationMessage[]>([]);
   const [isRecording, setIsRecording] = useState(false);
-  const [keyOpen, setKeyOpen] = useState(false);
-  const [apiKey, setApiKey] = useState('');
 
   const wsRef = useRef<WebSocket | null>(null);
   const recorderRef = useRef<AudioRecorder | null>(null);
-  const apiKeyRef = useRef('');
 
   const disconnectWS = useCallback(() => {
     const ws = wsRef.current;
@@ -32,104 +26,89 @@ export default function App() {
     }
   }, []);
 
-  const connectWS = useCallback(
-    (key: string) => {
-      apiKeyRef.current = key;
-      disconnectWS();
-      setStatus('connecting');
-      setMockMode(false);
-      setModel(null);
+  const connectWS = useCallback(() => {
+    disconnectWS();
+    setStatus('connecting');
+    setMockMode(false);
+    setModel(null);
 
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const ws = new WebSocket(`${protocol}//${window.location.host}/live`);
-      wsRef.current = ws;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${protocol}//${window.location.host}/live`);
+    wsRef.current = ws;
 
-      ws.onopen = () => {
-        setStatus('initializing_gemini');
-        ws.send(JSON.stringify({ type: 'init', apiKey: apiKeyRef.current }));
-      };
+    ws.onopen = () => {
+      setStatus('initializing_gemini');
+      ws.send(JSON.stringify({ type: 'init' }));
+    };
 
-      ws.onmessage = (event) => {
-        let payload: any;
-        try {
-          payload = JSON.parse(event.data);
-        } catch {
-          return;
+    ws.onmessage = (event) => {
+      let payload: any;
+      try {
+        payload = JSON.parse(event.data);
+      } catch {
+        return;
+      }
+      switch (payload.type) {
+        case 'ready':
+          setStatus('ready');
+          setMockMode(false);
+          setModel(payload.model ?? null);
+          break;
+        case 'mockInfo':
+          setMockMode(true);
+          setStatus('ready');
+          break;
+        case 'error':
+          setStatus('error');
+          toast.error(payload.message || '翻译服务出错');
+          break;
+        case 'transcription': {
+          const { id, originalLang, targetLang, originalText, translatedText } = payload;
+          setMessages((prev) => {
+            const idx = prev.findIndex((m) => m.id === id);
+            const next: TranslationMessage = {
+              id,
+              originalText,
+              translatedText,
+              originalLang,
+              targetLang,
+              completed: false,
+              timestamp: prev[idx]?.timestamp ?? Date.now(),
+            };
+            if (idx !== -1) {
+              const copy = [...prev];
+              copy[idx] = next;
+              return copy;
+            }
+            return [...prev, next];
+          });
+          break;
         }
-        switch (payload.type) {
-          case 'ready':
-            setStatus('ready');
-            setMockMode(false);
-            setModel(payload.model ?? null);
-            break;
-          case 'mockInfo':
-            setMockMode(true);
-            setStatus('ready');
-            break;
-          case 'error':
-            setStatus('error');
-            toast.error(payload.message || '翻译服务出错');
-            break;
-          case 'transcription': {
-            const { id, originalLang, targetLang, originalText, translatedText } = payload;
-            setMessages((prev) => {
-              const idx = prev.findIndex((m) => m.id === id);
-              const next: TranslationMessage = {
-                id,
-                originalText,
-                translatedText,
-                originalLang,
-                targetLang,
-                completed: false,
-                timestamp: prev[idx]?.timestamp ?? Date.now(),
-              };
-              if (idx !== -1) {
-                const copy = [...prev];
-                copy[idx] = next;
-                return copy;
-              }
-              return [...prev, next];
-            });
-            break;
-          }
-          case 'complete':
-            setMessages((prev) =>
-              prev.map((m) => (m.id === payload.id ? { ...m, completed: true } : m)),
-            );
-            break;
-        }
-      };
+        case 'complete':
+          setMessages((prev) =>
+            prev.map((m) => (m.id === payload.id ? { ...m, completed: true } : m)),
+          );
+          break;
+      }
+    };
 
-      ws.onclose = () => {
-        setStatus('disconnected');
-        setIsRecording(false);
-        recorderRef.current?.stop();
-        recorderRef.current = null;
-      };
+    ws.onclose = () => {
+      setStatus('disconnected');
+      setIsRecording(false);
+      recorderRef.current?.stop();
+      recorderRef.current = null;
+    };
 
-      ws.onerror = () => setStatus('error');
-    },
-    [disconnectWS],
-  );
+    ws.onerror = () => setStatus('error');
+  }, [disconnectWS]);
 
   useEffect(() => {
-    const stored = localStorage.getItem(KEY_STORAGE) ?? '';
-    setApiKey(stored);
-    connectWS(stored);
+    connectWS();
     return () => {
       disconnectWS();
       recorderRef.current?.stop();
     };
   }, [connectWS, disconnectWS]);
-
-  const handleSaveKey = (key: string) => {
-    if (key) localStorage.setItem(KEY_STORAGE, key);
-    else localStorage.removeItem(KEY_STORAGE);
-    setApiKey(key);
-    setKeyOpen(false);
-    setMessages([]);
-    connectWS(key);
-  };
 
   const handleMicToggle = async () => {
     if (isRecording) {
@@ -142,7 +121,7 @@ export default function App() {
       return;
     }
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      connectWS(apiKeyRef.current);
+      connectWS();
       return;
     }
     const recorder = new AudioRecorder(
@@ -162,7 +141,7 @@ export default function App() {
   };
 
   const footerText = mockMode
-    ? '演示模式 · 点击右上角钥匙填入你的 API Key'
+    ? '演示模式 · 服务器未配置语音识别 Key'
     : isRecording
       ? '正在聆听…'
       : status === 'ready'
@@ -176,7 +155,6 @@ export default function App() {
         mockMode={mockMode}
         model={model}
         hasMessages={messages.length > 0}
-        onOpenKey={() => setKeyOpen(true)}
         onClear={() => setMessages([])}
       />
 
@@ -206,7 +184,6 @@ export default function App() {
         {footerText}
       </footer>
 
-      <KeyDialog open={keyOpen} onOpenChange={setKeyOpen} apiKey={apiKey} onSave={handleSaveKey} />
       <Toaster position="top-center" richColors />
     </div>
   );

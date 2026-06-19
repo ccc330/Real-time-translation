@@ -1,3 +1,5 @@
+import { SpeechGate } from './vad';
+
 export class AudioRecorder {
   private static readonly BUFFER_SIZE = 1024;
 
@@ -7,10 +9,17 @@ export class AudioRecorder {
   private sourceNode: MediaStreamAudioSourceNode | null = null;
   private onAudioCallback: (base64PCM: string) => void;
   private onErrorCallback: (error: any) => void;
+  private gate: SpeechGate | null;
 
-  constructor(onAudio: (base64PCM: string) => void, onError: (error: any) => void) {
+  constructor(
+    onAudio: (base64PCM: string) => void,
+    onError: (error: any) => void,
+    useVad: boolean = true,
+  ) {
     this.onAudioCallback = onAudio;
     this.onErrorCallback = onError;
+    // VAD gates out silence so we don't pay the STT vendor for it.
+    this.gate = useVad ? new SpeechGate() : null;
   }
 
   async start() {
@@ -34,9 +43,12 @@ export class AudioRecorder {
 
       this.processorNode.onaudioprocess = (e) => {
         const inputData = e.inputBuffer.getChannelData(0);
-        const pcmBuffer = this.floatTo16BitPCM(inputData);
-        const base64 = this.arrayBufferToBase64(pcmBuffer);
-        this.onAudioCallback(base64);
+        const frames = this.gate ? this.gate.process(inputData) : [inputData];
+        for (const frame of frames) {
+          const pcmBuffer = this.floatTo16BitPCM(frame);
+          const base64 = this.arrayBufferToBase64(pcmBuffer);
+          this.onAudioCallback(base64);
+        }
       };
 
       this.sourceNode.connect(this.processorNode);
