@@ -125,9 +125,10 @@ export default function App() {
       return;
     }
     const recorder = new AudioRecorder(
-      (base64PCM) => {
+      (pcm) => {
+        // Send raw PCM16 as a binary WS frame (no base64 / JSON overhead).
         if (wsRef.current?.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({ type: 'audio', data: base64PCM }));
+          wsRef.current.send(pcm);
         }
       },
       (err: any) => {

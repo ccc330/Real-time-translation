@@ -71,7 +71,7 @@ const tick = () => {
   }
   const chunk = pcm.subarray(offset, offset + CHUNK);
   offset += CHUNK;
-  session.onAudio(chunk.toString('base64'));
+  session.onAudio(chunk);
   setTimeout(tick, 100);
 };
 setTimeout(tick, 500);

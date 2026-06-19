@@ -73,7 +73,13 @@ wss.on('connection', (ws) => {
   let session: Session | null = null;
   let started = false;
 
-  ws.on('message', (raw) => {
+  ws.on('message', (raw, isBinary) => {
+    // Binary frames are raw PCM16 audio; text frames are JSON control messages.
+    if (isBinary) {
+      if (session) session.onAudio(raw as Buffer);
+      return;
+    }
+
     let msg: any;
     try { msg = JSON.parse(raw.toString()); } catch { return; }
 
@@ -108,10 +114,6 @@ wss.on('connection', (ws) => {
         maxSessionAudioSec: MAX_SESSION_AUDIO_SEC,
       });
       return;
-    }
-
-    if (msg.type === 'audio' && msg.data && session) {
-      session.onAudio(msg.data);
     }
 
     if (msg.type === 'audio_end' && session?.onAudioEnd) {

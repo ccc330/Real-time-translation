@@ -280,10 +280,9 @@ export function startSonioxSession(ws: WebSocket, opts: SonioxOptions): Session 
   openSoniox();
 
   return {
-    onAudio: (base64: string) => {
+    onAudio: (buf: Buffer) => {
       if (isClosed || budgetTripped) return;
       if (!soniox || soniox.readyState !== WebSocket.OPEN) return;
-      const buf = Buffer.from(base64, 'base64');
       sentBytes += buf.length;
       if (opts.maxSessionAudioSec) {
         const sec = sentBytes / (2 * 16000); // pcm_s16le mono @16k

@@ -26,7 +26,7 @@ export const other = (l: Lang): Lang => (l === 'en' ? 'zh' : 'en');
  * (mock or live). Engines are fully interchangeable behind this interface.
  */
 export type Session = {
-  onAudio: (base64Pcm: string) => void;
+  onAudio: (pcm: Buffer) => void; // raw PCM16 mono 16 kHz (binary WS frame)
   onAudioEnd?: () => void;
   cleanup: () => void;
 };
