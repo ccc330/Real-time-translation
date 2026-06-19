@@ -41,11 +41,11 @@ export interface DeepSeekOptions {
   timeoutMs: number;
 }
 
+// Kept short and stable: fewer prefix tokens = faster first token, and a stable
+// prefix is automatically prompt-cached by DeepSeek across requests.
 const SYSTEM_PROMPT =
-  'You are a professional real-time conversation interpreter between Chinese and English. ' +
-  'Translate the user-provided utterance into the target language. ' +
-  'Output ONLY the translation — no quotes, no notes, no original text, no explanations. ' +
-  'Preserve tone and meaning; render natural, idiomatic speech suitable for live captions.';
+  'Real-time zh<->en interpreter. Output ONLY the natural translation of the user text — ' +
+  'no quotes, notes, or original.';
 
 /**
  * DeepSeek V4 Flash translator over the OpenAI-compatible streaming chat API.
@@ -63,9 +63,12 @@ export function createDeepSeekTranslator(opts: DeepSeekOptions): Translator {
       const target: Lang = other(input.originalLang);
       const targetName = target === 'zh' ? 'Simplified Chinese' : 'English';
 
+      // Keep the prompt lean for low first-token latency: at most the last 2 lines
+      // of context, length-capped.
       const userParts: string[] = [];
       if (input.context.length) {
-        userParts.push(`Conversation so far (for context, do not translate):\n${input.context.slice(-4).join('\n')}\n`);
+        const ctx = input.context.slice(-2).join('\n').slice(-400);
+        userParts.push(`Context (do not translate):\n${ctx}\n`);
       }
       userParts.push(`Translate into ${targetName}:\n${input.text}`);
 

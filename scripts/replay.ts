@@ -57,6 +57,7 @@ const session = startSonioxSession(fakeWs, {
   sonioxKey,
   translator,
   idlePendingMs: 2000,
+  maxEndpointDelayMs: 1500,
   maxReconnect: 3,
 });
 

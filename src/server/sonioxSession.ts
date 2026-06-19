@@ -14,6 +14,8 @@ export interface SonioxOptions {
   translator: Translator | null;
   /** Idle time after the last token before a turn is finalized. */
   idlePendingMs: number;
+  /** Soniox endpoint delay (ms, 500-3000): lower finalizes turns sooner. */
+  maxEndpointDelayMs: number;
   maxReconnect: number;
   /** Optional hard cap on audio seconds forwarded to Soniox (budget guard). */
   maxSessionAudioSec?: number;
@@ -236,6 +238,7 @@ export function startSonioxSession(ws: WebSocket, opts: SonioxOptions): Session 
         language_hints: ['en', 'zh'],
         enable_language_identification: true,
         enable_endpoint_detection: true,
+        max_endpoint_delay_ms: opts.maxEndpointDelayMs,
         translation: {
           type: 'two_way',
           language_a: 'en',
