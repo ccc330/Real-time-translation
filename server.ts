@@ -8,7 +8,7 @@ import { createServer as createViteServer } from 'vite';
 import type { Session } from './src/server/types';
 import { startMockInterval } from './src/server/mock';
 import { startSonioxSession } from './src/server/sonioxSession';
-import { createDeepSeekTranslator, Translator } from './src/server/translator';
+import { createTranslator, Translator } from './src/server/translator';
 
 // Load environment variables
 dotenv.config();
@@ -37,10 +37,25 @@ const SONIOX_MAX_RECONNECT = Number(process.env.SONIOX_MAX_RECONNECT) || 3;
 const MAX_SESSION_AUDIO_SEC = process.env.MAX_SESSION_AUDIO_SEC
   ? Number(process.env.MAX_SESSION_AUDIO_SEC)
   : undefined;
-const TRANSLATE_MODEL = process.env.TRANSLATE_MODEL || 'deepseek-v4-flash';
 
 const sonioxKey = () => (process.env.SONIOX_API_KEY || '').trim();
-const deepseekKey = () => (process.env.DEEPSEEK_API_KEY || '').trim();
+
+// Translation provider — OpenAI-compatible. Switch via TRANSLATE_PROVIDER for A/B.
+type ProviderName = 'deepseek' | 'mimo';
+const TRANSLATE_PROVIDER = (process.env.TRANSLATE_PROVIDER || 'deepseek').toLowerCase() as ProviderName;
+const PROVIDERS: Record<ProviderName, { baseUrl: string; model: string; key: () => string }> = {
+  deepseek: {
+    baseUrl: 'https://api.deepseek.com',
+    model: process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash',
+    key: () => (process.env.DEEPSEEK_API_KEY || '').trim(),
+  },
+  mimo: {
+    baseUrl: 'https://api.xiaomimimo.com/v1',
+    model: process.env.MIMO_MODEL || 'mimo-v2.5-pro-ultraspeed',
+    key: () => (process.env.MIMO_API_KEY || '').trim(),
+  },
+};
+const provider = () => PROVIDERS[TRANSLATE_PROVIDER] ?? PROVIDERS.deepseek;
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -50,10 +65,11 @@ app.get('/api/health', (req, res) => {
 // Reports engine status so the client can show a "demo mode" badge. Keys live
 // only on the server now; there is no per-user key entry.
 app.get('/api/config', (req, res) => {
+  const p = provider();
   res.json({
     mock: !sonioxKey(),
     sttModel: sonioxKey() ? 'stt-rt-v5' : null,
-    translateModel: deepseekKey() ? TRANSLATE_MODEL : (sonioxKey() ? 'soniox-builtin' : null),
+    translateModel: p.key() ? p.model : (sonioxKey() ? 'soniox-builtin' : null),
   });
 });
 
@@ -96,16 +112,20 @@ wss.on('connection', (ws) => {
         return;
       }
 
-      const dKey = deepseekKey();
-      const translator: Translator | null = dKey
-        ? createDeepSeekTranslator({
-            apiKey: dKey,
-            model: TRANSLATE_MODEL,
+      const p = provider();
+      const tKey = p.key();
+      const translator: Translator | null = tKey
+        ? createTranslator({
+            apiKey: tKey,
+            model: p.model,
+            baseUrl: p.baseUrl,
             firstTokenMs: TRANSLATE_FIRST_TOKEN_MS,
             timeoutMs: TRANSLATE_TIMEOUT_MS,
           })
         : null;
-      if (!dKey) console.log('No DEEPSEEK_API_KEY. Using Soniox built-in translation only.');
+      console.log(tKey
+        ? `Translation provider: ${TRANSLATE_PROVIDER} (${p.model})`
+        : `No key for provider "${TRANSLATE_PROVIDER}". Using Soniox built-in translation only.`);
 
       session = startSonioxSession(ws, {
         sonioxKey: sKey,

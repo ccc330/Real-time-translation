@@ -31,13 +31,14 @@ export class TranslationAborted extends Error {
   }
 }
 
-export interface DeepSeekOptions {
+export interface TranslatorOptions {
   apiKey: string;
   model: string;
-  baseUrl?: string;
-  /** Soft deadline: abort + fail if no first token arrives in time. */
+  /** OpenAI-compatible base URL, e.g. https://api.deepseek.com or https://api.xiaomimimo.com/v1 */
+  baseUrl: string;
+  /** Soft deadline: fall back to Soniox if no first token arrives in time. */
   firstTokenMs: number;
-  /** Hard deadline: abort + fail if the whole translation exceeds this. */
+  /** Inactivity deadline: abort + fail if the stream stalls (reset on each token). */
   timeoutMs: number;
 }
 
@@ -48,15 +49,14 @@ const SYSTEM_PROMPT =
   'no quotes, notes, or original.';
 
 /**
- * DeepSeek V4 Flash translator over the OpenAI-compatible streaming chat API.
+ * Streaming translator over any OpenAI-compatible chat API (DeepSeek, Xiaomi MiMo, …).
  *
- * Quality-first primary translator. On timeout/HTTP/network failure it throws
- * TranslationFailed so the caller can fall back to Soniox's built-in translation.
- * When a newer translation supersedes this one (external signal), it throws
- * TranslationAborted so the caller can ignore it without triggering fallback.
+ * Primary translator. On timeout/HTTP/network failure it throws TranslationFailed so
+ * the caller can fall back to Soniox's built-in translation. When aborted via the
+ * caller's signal (hard cleanup) it throws TranslationAborted.
  */
-export function createDeepSeekTranslator(opts: DeepSeekOptions): Translator {
-  const baseUrl = (opts.baseUrl || 'https://api.deepseek.com').replace(/\/$/, '');
+export function createTranslator(opts: TranslatorOptions): Translator {
+  const baseUrl = opts.baseUrl.replace(/\/$/, '');
 
   return {
     async translate(input, onDelta) {

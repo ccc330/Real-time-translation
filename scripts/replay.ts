@@ -11,7 +11,7 @@
 import { readFileSync } from 'fs';
 import dotenv from 'dotenv';
 import { startSonioxSession } from '../src/server/sonioxSession';
-import { createDeepSeekTranslator } from '../src/server/translator';
+import { createTranslator } from '../src/server/translator';
 
 dotenv.config();
 
@@ -43,15 +43,19 @@ const fakeWs: any = {
   },
 };
 
-const translator =
-  (process.env.DEEPSEEK_API_KEY || '').trim()
-    ? createDeepSeekTranslator({
-        apiKey: process.env.DEEPSEEK_API_KEY!.trim(),
-        model: process.env.TRANSLATE_MODEL || 'deepseek-v4-flash',
-        firstTokenMs: 1200,
-        timeoutMs: 2500,
-      })
-    : null;
+const useMimo = (process.env.TRANSLATE_PROVIDER || 'deepseek').toLowerCase() === 'mimo';
+const tKey = (useMimo ? process.env.MIMO_API_KEY : process.env.DEEPSEEK_API_KEY || '')?.trim();
+const translator = tKey
+  ? createTranslator({
+      apiKey: tKey,
+      model: useMimo
+        ? (process.env.MIMO_MODEL || 'mimo-v2.5-pro-ultraspeed')
+        : (process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash'),
+      baseUrl: useMimo ? 'https://api.xiaomimimo.com/v1' : 'https://api.deepseek.com',
+      firstTokenMs: 1200,
+      timeoutMs: 2500,
+    })
+  : null;
 
 const session = startSonioxSession(fakeWs, {
   sonioxKey,
