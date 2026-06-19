@@ -6,8 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Browser-based Chinese↔English live-caption translator. Two people speak face-to-face; the
 top panel shows English, the bottom panel shows Chinese, each as live captions. Frontend (React 19 +
-Vite + Tailwind v4 + shadcn/ui) and backend (Express + `ws` + Gemini Live) run in a **single Node
-process** — there is no separate client/server build or proxy.
+Vite + Tailwind v4 + shadcn/ui) and backend (Express + `ws` + Soniox STT + DeepSeek MT) run in a
+**single Node process** — there is no separate client/server build or proxy.
+
+Translation pipeline: **Soniox** real-time multilingual STT (one session, two-way zh↔en
+translation enabled) produces the original captions; committed clauses are translated by
+**DeepSeek V4 Flash** (streaming), with Soniox's built-in translation as an instant fallback.
 
 ## Commands
 
@@ -31,15 +35,21 @@ server process does not watch itself.
 
 ## Environment (`.env`, loaded via `dotenv.config()`)
 
-- `GEMINI_API_KEY` — server-default key. If empty/`MY_GEMINI_API_KEY`, the server runs MOCK mode.
-- `GEMINI_LIVE_MODEL` — default `gemini-3.5-live-translate-preview` (must be a Live API model the
-  key is provisioned for; needs `bidiGenerateContent` access).
-- `PORT` — default `3000`.
-- `IDLE_COMPLETE_MS` (750) / `IDLE_PENDING_TRANSLATION_MS` (2200) — utterance-endpointing timers
-  (see "Utterance completion" below).
+Keys live **only on the server** (no per-user key entry / KeyDialog). See `.env.example`.
 
-Note: `dotenv.config()` reads **`.env`**, not `.env.local` (the README says `.env.local` — the code
-does not). Put the key in `.env`. `.env*` is gitignored.
+- `SONIOX_API_KEY` — real-time STT. If empty, the server runs MOCK mode.
+- `DEEPSEEK_API_KEY` — primary translation (`deepseek-v4-flash`). Optional; if empty,
+  translation falls back to Soniox's built-in two-way translation.
+- `TRANSLATE_MODEL` — default `deepseek-v4-flash`.
+- `TRANSLATE_FIRST_TOKEN_MS` (1200) / `TRANSLATE_TIMEOUT_MS` (2500) — translation latency budget:
+  soft first-token deadline, then hard abort (→ Soniox fallback).
+- `IDLE_COMPLETE_MS` (750) / `IDLE_PENDING_TRANSLATION_MS` (2000) — utterance-endpointing timers
+  (see "Utterance completion" below).
+- `SONIOX_MAX_RECONNECT` (3) — reconnect attempts on a dropped Soniox session.
+- `MAX_SESSION_AUDIO_SEC` — optional per-connection audio-seconds cap (budget guard).
+- `PORT` — default `3000`.
+
+Note: `dotenv.config()` reads **`.env`**. `.env*` is gitignored.
 
 ## Architecture
 
@@ -48,39 +58,50 @@ does not). Put the key in `.env`. `.env*` is gitignored.
 `WebSocketServer` on path `/live` (manual `upgrade` handling), and Vite (dev middleware) or static
 `dist/` (prod). The browser connects to `ws(s)://<same-host>/live`, so no proxy is needed.
 
-### Per-connection lifecycle and key handling
-A WS connection does **nothing** until the client sends `{type:'init', apiKey}` as the first message.
-`init` decides the engine: a non-empty client key (from the browser's localStorage) wins; otherwise
-the server `.env` key; otherwise MOCK. This is how each user supplies their **own** key from the UI
-(`KeyDialog`) — it is sent over the socket and used to construct that connection's `GoogleGenAI`.
+### Per-connection lifecycle and engine selection
+A WS connection does **nothing** until the client sends `{type:'init'}` as the first message
+(no key — keys are server-side). `init` picks the engine: if `SONIOX_API_KEY` is set →
+`startSonioxSession` (with a DeepSeek `Translator` if `DEEPSEEK_API_KEY` is set, else Soniox-only
+translation); otherwise → MOCK.
+
+### Server module layout (`src/server/`)
+- `types.ts` — `Session` (the engine seam), `Lang`, `ServerFrame`, confirmed external-API facts.
+- `sonioxSession.ts` — the core: Soniox WS, token parsing, the endpoint state machine, translation
+  orchestration, reconnect, budget guard.
+- `translator.ts` — `createDeepSeekTranslator` (streaming, AbortSignal, first-token/hard timeouts).
+- `textUtils.ts` — `detectLang`, `mergeTranscript`, `endsAtClauseBoundary` (pure, tested).
+- `mock.ts` — `startMockInterval`.
+Server modules use **relative imports** (not the `@/*` alias, which is client-only).
 
 ### WebSocket protocol
-- client → server: `init {apiKey}`, `audio {data}` (base64 PCM16 mono 16 kHz), `audio_end`.
+- client → server: `init {}`, `audio {data}` (base64 PCM16 mono 16 kHz), `audio_end`.
 - server → client: `ready {model}`, `mockInfo {message}`, `error {message}`,
   `transcription {id, originalLang, targetLang, originalText, translatedText}`, `complete {id}`.
   `transcription` frames are upserted by `id`; `originalText`/`translatedText` grow as they stream.
 
-### Translation engine (`startLiveSession`) — the non-obvious core
-Per connection it opens **two** Gemini Live Translate sessions, one with `targetLanguageCode: 'en'`
-and one with `'zh-CN'`, both fed the *same* audio, both with `echoTargetLanguage:false`. Direction is
-not assumed: the session that actually emits translated `outputTranscription` becomes the utterance's
-`activeTarget`, and `detectLang()` (CJK-vs-Latin char count) classifies the original. `mergeTranscript`
-stitches overlapping streaming deltas. This dual-session design exists because a single session can't
-know which way to translate until the model starts producing output.
+### Translation engine (`startSonioxSession`) — the non-obvious core
+One Soniox real-time WS session per connection (`stt-rt-v5`, `translation: {type:"two_way"}` for
+zh↔en). Original tokens drive captions immediately; `originalLang` comes from each token's language
+tag (fallback `detectLang`). Committed clauses are translated by DeepSeek; each new translation
+aborts the previous (AbortSignal) and a per-turn `translationSeq` prevents stale overwrites. On
+DeepSeek timeout/failure the turn shows Soniox's built-in translation (tokens with
+`translation_status:"translation"`) instead.
 
-### Utterance completion
-The Live Translate model does not reliably emit `turnComplete`, so a turn is finalized by **idle
-timers**: `IDLE_COMPLETE_MS` once a translation already exists, the longer `IDLE_PENDING_TRANSLATION_MS`
-while still waiting for one. The client also sends `audio_end` when the mic stops. On finalize the
-server sends `complete {id}`.
+### Utterance completion (endpointing)
+Three signals, distinct thresholds (see `docs/superpowers/specs/`): token `is_final` decides what is
+translatable; a clause boundary (punctuation or `IDLE_COMPLETE_MS`) triggers a (re-)translation; a
+real endpoint (Soniox `<end>` token, `IDLE_PENDING_TRANSLATION_MS`, or client `audio_end`) finalizes
+the turn and sends `complete {id}`. Translation is provisional/re-runnable, so a thinking-pause never
+hard-cuts a sentence.
 
 ### Mock mode
 `startMockInterval` streams a scripted bilingual dialogue with a typewriter effect — lets the full
 client pipeline be exercised with no key/network.
 
 ### Client rendering
-`App.tsx` owns the WS, recorder, key dialog, and `messages` list. `AudioRecorder`
-(`src/utils/recorder.ts`) uses a `ScriptProcessorNode` at 16 kHz to emit base64 PCM16 chunks.
+`App.tsx` owns the WS, recorder, and `messages` list (no key dialog). `AudioRecorder`
+(`src/utils/recorder.ts`) uses a `ScriptProcessorNode` at 16 kHz to emit base64 PCM16 chunks,
+gated by `SpeechGate` (`src/utils/vad.ts`) so only speech is streamed (cost control).
 Both panels render from the *same* `messages` array: `TranslationPanel` picks `originalText` when
 `originalLang === panelLang`, else `translatedText`. The newest message is largest and anchored toward
 the centre mic divider (`anchor='bottom'` for the EN/top panel, `'top'` for the ZH/bottom panel),
