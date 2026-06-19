@@ -9,6 +9,18 @@ import { createServer as createViteServer } from 'vite';
 // Load environment variables
 dotenv.config();
 
+// Keep the process alive through failures inside per-connection Gemini Live
+// sessions. The @google/genai SDK can surface a dropped/failed upstream socket
+// as an 'error' event with no listener (or an unhandled rejection), which would
+// otherwise take down the entire HTTP + WebSocket server. We log and carry on;
+// the affected client already receives an `error` frame via its onerror callback.
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException] kept server alive:', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection] kept server alive:', reason);
+});
+
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ noServer: true });
@@ -394,6 +406,19 @@ async function startServer() {
     app.use(express.static(distPath));
     app.get('*', (req, res) => res.sendFile(path.join(distPath, 'index.html')));
   }
+
+  server.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(
+        `\n[fatal] Port ${PORT} is already in use — likely a previous instance that did not exit cleanly.\n` +
+        `        Free it with:  lsof -ti :${PORT} | xargs kill -9\n` +
+        `        or start on another port:  PORT=3001 npm run dev\n`
+      );
+    } else {
+      console.error('[fatal] HTTP server error:', err);
+    }
+    process.exit(1);
+  });
 
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`Live translator service available on http://0.0.0.0:${PORT}`);
