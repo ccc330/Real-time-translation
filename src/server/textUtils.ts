@@ -42,8 +42,3 @@ export function mergeTranscript(existing: string, incoming: string): string {
   }
   return existing + incoming;
 }
-
-/** True when committed text ends at a natural clause/sentence boundary. */
-export function endsAtClauseBoundary(text: string): boolean {
-  return /[。！？，、,.!?;；:：]\s*$/.test(text);
-}

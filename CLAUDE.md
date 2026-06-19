@@ -43,9 +43,9 @@ Keys live **only on the server** (no per-user key entry / KeyDialog). See `.env.
 - `TRANSLATE_MODEL` — default `deepseek-v4-flash`.
 - `TRANSLATE_FIRST_TOKEN_MS` (1200) / `TRANSLATE_TIMEOUT_MS` (2500) — translation latency budget:
   soft first-token deadline, then hard abort (→ Soniox fallback).
-- `TRANSLATE_DEBOUNCE_MS` (300) / `TRANSLATE_MAX_INTERVAL_MS` (900) — live translation cadence:
-  debounce after a micro-pause, and the max gap between (re)translations during continuous speech.
-- `IDLE_PENDING_TRANSLATION_MS` (2000) — turn-complete idle timeout.
+- `IDLE_PENDING_TRANSLATION_MS` (2000) — turn-complete idle timeout. Translation itself runs via a
+  single-flight worker (no debounce knob): it re-translates the full text-so-far whenever DeepSeek is
+  free, so captions stay complete without re-translation thrash.
 - `SONIOX_MAX_RECONNECT` (3) — reconnect attempts on a dropped Soniox session.
 - `MAX_SESSION_AUDIO_SEC` — optional per-connection audio-seconds cap (budget guard).
 - `PORT` — default `3000`.
@@ -70,7 +70,7 @@ translation); otherwise → MOCK.
 - `sonioxSession.ts` — the core: Soniox WS, token parsing, the endpoint state machine, translation
   orchestration, reconnect, budget guard.
 - `translator.ts` — `createDeepSeekTranslator` (streaming, AbortSignal, first-token/hard timeouts).
-- `textUtils.ts` — `detectLang`, `mergeTranscript`, `endsAtClauseBoundary` (pure, tested).
+- `textUtils.ts` — `detectLang`, `resolveLang`, `mergeTranscript` (pure, tested).
 - `mock.ts` — `startMockInterval`.
 Server modules use **relative imports** (not the `@/*` alias, which is client-only).
 
@@ -83,17 +83,18 @@ Server modules use **relative imports** (not the `@/*` alias, which is client-on
 ### Translation engine (`startSonioxSession`) — the non-obvious core
 One Soniox real-time WS session per connection (`stt-rt-v5`, `translation: {type:"two_way"}` for
 zh↔en). Original tokens drive captions immediately; `originalLang` comes from each token's language
-tag (fallback `detectLang`). Committed clauses are translated by DeepSeek; each new translation
-aborts the previous (AbortSignal) and a per-turn `translationSeq` prevents stale overwrites. On
-DeepSeek timeout/failure the turn shows Soniox's built-in translation (tokens with
+tag (fallback `resolveLang`). Translation uses a **single-flight drain worker** (`drainTranslation` /
+`kickTranslation`): at most one DeepSeek request runs per turn, it translates the full original
+so-far and is **never aborted on supersede** — when it finishes it re-checks for newly-arrived text
+and continues. This avoids re-translation thrash (which dropped words/segments) while staying live.
+On DeepSeek failure/stall the turn shows Soniox's built-in translation (tokens with
 `translation_status:"translation"`) instead.
 
 ### Utterance completion (endpointing)
-Three signals, distinct thresholds (see `docs/superpowers/specs/`): token `is_final` decides what is
-translatable; a clause boundary (punctuation or `IDLE_COMPLETE_MS`) triggers a (re-)translation; a
-real endpoint (Soniox `<end>` token, `IDLE_PENDING_TRANSLATION_MS`, or client `audio_end`) finalizes
-the turn and sends `complete {id}`. Translation is provisional/re-runnable, so a thinking-pause never
-hard-cuts a sentence.
+A turn finalizes on a real endpoint: a Soniox `<end>` token, `IDLE_PENDING_TRANSLATION_MS` of no
+tokens, or client `audio_end`. `completeTurn` is **async**: it drains the translation worker (waiting
+for the full text-so-far to be translated) *before* sending `complete {id}`, so a turn is never
+finalized with a partial translation. Late tokens arriving during the drain are picked up too.
 
 ### Mock mode
 `startMockInterval` streams a scripted bilingual dialogue with a typewriter effect — lets the full

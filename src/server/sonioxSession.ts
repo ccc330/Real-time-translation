@@ -1,7 +1,7 @@
 import { WebSocket } from 'ws';
 import type { Lang, Session, ServerFrame } from './types';
 import { other } from './types';
-import { mergeTranscript, endsAtClauseBoundary, resolveLang } from './textUtils';
+import { mergeTranscript, resolveLang } from './textUtils';
 import { Translator, TranslationAborted } from './translator';
 
 const SONIOX_URL = 'wss://stt-rt.soniox.com/transcribe-websocket';
@@ -12,10 +12,7 @@ export interface SonioxOptions {
   sonioxKey: string;
   /** Primary translator (DeepSeek). If null, only Soniox built-in translation is used. */
   translator: Translator | null;
-  /** Debounce: translate this long after the last token (catches micro-pauses). */
-  translateDebounceMs: number;
-  /** Force a (re)translation at least this often during continuous speech. */
-  translateMaxIntervalMs: number;
+  /** Idle time after the last token before a turn is finalized. */
   idlePendingMs: number;
   maxReconnect: number;
   /** Optional hard cap on audio seconds forwarded to Soniox (budget guard). */
@@ -37,10 +34,11 @@ interface LiveTurn {
   committedTranslation: string; // Soniox built-in (fallback source)
   pendingTranslation: string;
   translatedText: string; // what we actually show (DeepSeek, or fallback)
-  translationSeq: number;
-  translateAbort: AbortController | null;
-  lastTranslateAt: number;
-  lastTranslatedSource: string;
+  translatedSource: string; // the original text the current translatedText was built from
+  draining: boolean; // a translation worker is running for this turn
+  drainPromise: Promise<void> | null;
+  completing: boolean;
+  abort: AbortController; // aborted only on hard cleanup, never on supersede
 }
 
 /**
@@ -59,7 +57,6 @@ export function startSonioxSession(ws: WebSocket, opts: SonioxOptions): Session 
   let budgetTripped = false;
 
   let turn: LiveTurn | null = null;
-  let translateTimer: NodeJS.Timeout | null = null;
   let completeTimer: NodeJS.Timeout | null = null;
   const recentContext: string[] = [];
 
@@ -77,10 +74,11 @@ export function startSonioxSession(ws: WebSocket, opts: SonioxOptions): Session 
       committedTranslation: '',
       pendingTranslation: '',
       translatedText: '',
-      translationSeq: 0,
-      translateAbort: null,
-      lastTranslateAt: 0,
-      lastTranslatedSource: '',
+      translatedSource: '',
+      draining: false,
+      drainPromise: null,
+      completing: false,
+      abort: new AbortController(),
     };
     return turn;
   };
@@ -97,61 +95,60 @@ export function startSonioxSession(ws: WebSocket, opts: SonioxOptions): Session 
     });
   };
 
-  const runTranslation = async () => {
-    if (!turn || !opts.translator) return;
-    // Translate the full *visible* original (committed + pending) so the caption
-    // grows live as the person speaks, rather than only after a clause finalizes.
-    const text = (turn.committedOriginal + turn.pendingOriginal).trim();
-    if (!text) return;
-
-    const t = turn;
-    t.lastTranslateAt = Date.now();
-    t.lastTranslatedSource = text;
-    const seq = ++t.translationSeq;
-    t.translateAbort?.abort();
-    const ac = new AbortController();
-    t.translateAbort = ac;
-
-    // turn === t guarantees the captured turn is still active; seq guards staleness.
-    const isCurrent = () => turn === t && seq === t.translationSeq;
-
-    try {
-      await opts.translator.translate(
-        { text, originalLang: t.originalLang, context: [...recentContext], signal: ac.signal },
-        (full) => {
-          if (isCurrent()) {
-            t.translatedText = full;
-            emitTurn();
-          }
-        },
-      );
-    } catch (err) {
-      if (err instanceof TranslationAborted) return; // superseded by a newer translation
-      // DeepSeek failed -> fall back to Soniox's built-in translation if available.
-      if (isCurrent()) {
-        const fb = (t.committedTranslation + t.pendingTranslation).trim();
-        if (fb) t.translatedText = fb;
-        else if (!t.translatedText) t.translatedText = '⋯（翻译重试中）';
-        emitTurn();
+  // Single-flight translation worker: only one DeepSeek request runs per turn at
+  // a time and it is NEVER aborted on supersede. It translates the full current
+  // original; when it finishes it re-checks for newly-arrived text and continues.
+  // This keeps captions complete (no thrash-induced word/segment drops) while
+  // staying live, because each pass covers everything spoken so far.
+  const drainTranslation = async (t: LiveTurn): Promise<void> => {
+    if (!opts.translator) return;
+    while (turn === t && !isClosed) {
+      const source = (t.committedOriginal + t.pendingOriginal).trim();
+      if (!source || source === t.translatedSource) break;
+      t.translatedSource = source;
+      try {
+        await opts.translator.translate(
+          { text: source, originalLang: t.originalLang, context: [...recentContext], signal: t.abort.signal },
+          (full) => {
+            if (turn === t) { t.translatedText = full; emitTurn(); }
+          },
+        );
+      } catch (err) {
+        if (err instanceof TranslationAborted) break; // hard cleanup only
+        // DeepSeek failed/stalled -> fall back to Soniox's built-in translation.
+        if (turn === t) {
+          const fb = (t.committedTranslation + t.pendingTranslation).trim();
+          if (fb) { t.translatedText = fb; emitTurn(); }
+        }
+        break; // avoid hot-looping on a persistent failure; next token re-kicks
       }
     }
   };
 
-  const scheduleTimers = () => {
-    if (translateTimer) clearTimeout(translateTimer);
-    if (completeTimer) clearTimeout(completeTimer);
-    // Short debounce: translate shortly after a micro-pause in speech.
-    translateTimer = setTimeout(() => void runTranslation(), opts.translateDebounceMs);
-    completeTimer = setTimeout(() => completeTurn(), opts.idlePendingMs);
+  const kickTranslation = () => {
+    if (!turn || turn.draining) return;
+    const t = turn;
+    t.draining = true;
+    t.drainPromise = drainTranslation(t).finally(() => { t.draining = false; });
   };
 
-  const completeTurn = () => {
-    if (translateTimer) { clearTimeout(translateTimer); translateTimer = null; }
-    if (completeTimer) { clearTimeout(completeTimer); completeTimer = null; }
-    if (!turn) return;
-    const t = turn;
+  const scheduleComplete = () => {
+    if (completeTimer) clearTimeout(completeTimer);
+    completeTimer = setTimeout(() => void completeTurn(), opts.idlePendingMs);
+  };
 
-    // Ensure a translation is shown before finalizing.
+  const completeTurn = async () => {
+    if (completeTimer) { clearTimeout(completeTimer); completeTimer = null; }
+    if (!turn || turn.completing) return;
+    const t = turn;
+    t.completing = true;
+
+    // Drain any in-flight + newly-arrived text so the final caption is complete.
+    kickTranslation();
+    if (t.drainPromise) { try { await t.drainPromise; } catch {} }
+
+    if (turn !== t) return; // a fresh turn already took over
+
     if (!t.translatedText.trim()) {
       const fb = (t.committedTranslation + t.pendingTranslation).trim();
       if (fb) t.translatedText = fb;
@@ -163,7 +160,6 @@ export function startSonioxSession(ws: WebSocket, opts: SonioxOptions): Session 
       if (recentContext.length > 6) recentContext.shift();
     }
     const id = t.id;
-    t.translateAbort?.abort();
     turn = null;
     send({ type: 'complete', id });
   };
@@ -204,21 +200,11 @@ export function startSonioxSession(ws: WebSocket, opts: SonioxOptions): Session 
       t.originalLang = resolveLang(lastOriginalLangCode, visible);
 
       emitTurn();
-      scheduleTimers();
-
-      // Translate eagerly so captions keep up with live speech:
-      //  - immediately at a natural clause boundary, or
-      //  - at least every translateMaxIntervalMs during continuous speech, when
-      //    the original has grown since the last translation.
-      const grew = visible.length > t.lastTranslatedSource.length;
-      if (newFinalOriginal && endsAtClauseBoundary(t.committedOriginal)) {
-        void runTranslation();
-      } else if (grew && Date.now() - t.lastTranslateAt >= opts.translateMaxIntervalMs) {
-        void runTranslation();
-      }
+      scheduleComplete();
+      kickTranslation(); // worker translates the full text-so-far, coalescing updates
     }
 
-    if (endpoint) completeTurn();
+    if (endpoint) void completeTurn();
   };
 
   const openSoniox = () => {
@@ -299,13 +285,12 @@ export function startSonioxSession(ws: WebSocket, opts: SonioxOptions): Session 
     onAudioEnd: () => {
       if (isClosed) return;
       try { soniox?.send(''); } catch {} // Soniox end-of-audio signal
-      completeTurn();
+      void completeTurn();
     },
     cleanup: () => {
       isClosed = true;
-      if (translateTimer) clearTimeout(translateTimer);
       if (completeTimer) clearTimeout(completeTimer);
-      turn?.translateAbort?.abort();
+      turn?.abort.abort();
       try { soniox?.close(); } catch {}
       const sec = (sentBytes / (2 * 16000)).toFixed(1);
       console.log(`Soniox session ended. Forwarded ~${sec}s of audio.`);

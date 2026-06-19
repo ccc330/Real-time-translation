@@ -87,14 +87,22 @@ export function createDeepSeekTranslator(opts: DeepSeekOptions): Translator {
           ac.abort();
         }
       }, opts.firstTokenMs);
-      const hardTimer = setTimeout(() => {
-        timedOut = true;
-        ac.abort();
-      }, opts.timeoutMs);
+      // Inactivity (stall) timeout — reset on every token so a long but actively
+      // streaming translation is never cut off mid-output (that would drop text);
+      // only a genuinely stalled stream aborts.
+      let stallTimer: NodeJS.Timeout;
+      const resetStall = () => {
+        clearTimeout(stallTimer);
+        stallTimer = setTimeout(() => {
+          timedOut = true;
+          ac.abort();
+        }, opts.timeoutMs);
+      };
+      resetStall();
 
       const cleanup = () => {
         clearTimeout(firstTokenTimer);
-        clearTimeout(hardTimer);
+        clearTimeout(stallTimer);
         input.signal.removeEventListener('abort', onExternalAbort);
       };
 
@@ -147,6 +155,7 @@ export function createDeepSeekTranslator(opts: DeepSeekOptions): Translator {
                   gotFirstToken = true;
                   clearTimeout(firstTokenTimer);
                 }
+                resetStall();
                 full += delta;
                 onDelta(full);
               }

@@ -3,7 +3,7 @@
  * Run with: npx tsx scripts/check-logic.ts
  * No test framework — this is the project convention (see CLAUDE.md).
  */
-import { detectLang, mergeTranscript, endsAtClauseBoundary } from '../src/server/textUtils';
+import { detectLang, mergeTranscript, resolveLang } from '../src/server/textUtils';
 
 let passed = 0;
 let failed = 0;
@@ -32,12 +32,12 @@ eq(mergeTranscript('hello world', 'world'), 'hello world', 'merge: existing alre
 eq(mergeTranscript('the quick', 'quick brown fox'), 'the quick brown fox', 'merge: overlap stitch');
 eq(mergeTranscript('abc', 'def'), 'abcdef', 'merge: no overlap -> concat');
 
-// --- endsAtClauseBoundary ---
-eq(endsAtClauseBoundary('你好。'), true, 'clause: chinese full stop');
-eq(endsAtClauseBoundary('Hello,'), true, 'clause: comma');
-eq(endsAtClauseBoundary('How are you?'), true, 'clause: question mark');
-eq(endsAtClauseBoundary('still talking'), false, 'clause: mid-sentence -> false');
-eq(endsAtClauseBoundary('done. '), true, 'clause: trailing space tolerated');
+// --- resolveLang ---
+eq(resolveLang('zh', ''), 'zh', 'resolveLang: zh tag');
+eq(resolveLang('cmn', ''), 'zh', 'resolveLang: cmn -> zh');
+eq(resolveLang('en-US', ''), 'en', 'resolveLang: en-US -> en');
+eq(resolveLang(undefined, '你好世界'), 'zh', 'resolveLang: no tag falls back to detectLang');
+eq(resolveLang('xx', 'hello'), 'en', 'resolveLang: unknown tag falls back to detectLang');
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
