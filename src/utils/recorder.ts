@@ -98,11 +98,13 @@ export class AudioRecorder {
   }
 
   private arrayBufferToBase64(buffer: ArrayBuffer): string {
-    let binary = '';
     const bytes = new Uint8Array(buffer);
-    const len = bytes.byteLength;
-    for (let i = 0; i < len; i++) {
-      binary += String.fromCharCode(bytes[i]);
+    let binary = '';
+    // Build the binary string in chunks instead of char-by-char (this runs on
+    // every forwarded audio frame). 0x8000 keeps the apply() arg count safe.
+    const CHUNK = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK) as unknown as number[]);
     }
     return window.btoa(binary);
   }

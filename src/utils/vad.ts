@@ -58,12 +58,6 @@ export class SpeechGate {
     return [];
   }
 
-  reset() {
-    this.speaking = false;
-    this.lastVoiceAt = 0;
-    this.preroll = [];
-  }
-
   private rms(frame: Float32Array): number {
     let sum = 0;
     for (let i = 0; i < frame.length; i++) sum += frame[i] * frame[i];

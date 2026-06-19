@@ -21,9 +21,6 @@ export type Lang = 'en' | 'zh';
 
 export const other = (l: Lang): Lang => (l === 'en' ? 'zh' : 'en');
 
-/** Soniox target_language uses plain "zh" / "en"; our engine works in Lang. */
-export const sonioxLangCode = (l: Lang): string => l;
-
 /**
  * The single seam between the WebSocket route handler and any engine
  * (mock or live). Engines are fully interchangeable behind this interface.

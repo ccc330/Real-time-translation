@@ -1,7 +1,7 @@
 import { WebSocket } from 'ws';
 import type { Lang, Session, ServerFrame } from './types';
-import { other, sonioxLangCode } from './types';
-import { detectLang, mergeTranscript, endsAtClauseBoundary } from './textUtils';
+import { other } from './types';
+import { mergeTranscript, endsAtClauseBoundary, resolveLang } from './textUtils';
 import { Translator, TranslationAborted } from './translator';
 
 const SONIOX_URL = 'wss://stt-rt.soniox.com/transcribe-websocket';
@@ -31,8 +31,7 @@ interface SonioxToken {
 
 interface LiveTurn {
   id: string;
-  originalLang: Lang;
-  targetLang: Lang;
+  originalLang: Lang; // targetLang is always other(originalLang)
   committedOriginal: string;
   pendingOriginal: string;
   committedTranslation: string; // Soniox built-in (fallback source)
@@ -43,13 +42,6 @@ interface LiveTurn {
   lastTranslateAt: number;
   lastTranslatedSource: string;
 }
-
-const mapLang = (code: string | undefined, fallbackText: string): Lang => {
-  if (!code) return detectLang(fallbackText);
-  if (code.startsWith('zh') || code === 'cmn' || code === 'yue') return 'zh';
-  if (code.startsWith('en')) return 'en';
-  return detectLang(fallbackText);
-};
 
 /**
  * Real translation bridge for a single client connection (Soniox STT + DeepSeek MT).
@@ -80,7 +72,6 @@ export function startSonioxSession(ws: WebSocket, opts: SonioxOptions): Session 
     turn = {
       id: `turn-${Date.now()}`,
       originalLang: 'en',
-      targetLang: 'zh',
       committedOriginal: '',
       pendingOriginal: '',
       committedTranslation: '',
@@ -100,7 +91,7 @@ export function startSonioxSession(ws: WebSocket, opts: SonioxOptions): Session 
       type: 'transcription',
       id: turn.id,
       originalLang: turn.originalLang,
-      targetLang: turn.targetLang,
+      targetLang: other(turn.originalLang),
       originalText: (turn.committedOriginal + turn.pendingOriginal).trim(),
       translatedText: turn.translatedText.trim(),
     });
@@ -114,7 +105,6 @@ export function startSonioxSession(ws: WebSocket, opts: SonioxOptions): Session 
     if (!text) return;
 
     const t = turn;
-    const turnId = t.id;
     t.lastTranslateAt = Date.now();
     t.lastTranslatedSource = text;
     const seq = ++t.translationSeq;
@@ -122,7 +112,8 @@ export function startSonioxSession(ws: WebSocket, opts: SonioxOptions): Session 
     const ac = new AbortController();
     t.translateAbort = ac;
 
-    const isCurrent = () => turn === t && turn.id === turnId && seq === t.translationSeq;
+    // turn === t guarantees the captured turn is still active; seq guards staleness.
+    const isCurrent = () => turn === t && seq === t.translationSeq;
 
     try {
       await opts.translator.translate(
@@ -209,9 +200,8 @@ export function startSonioxSession(ws: WebSocket, opts: SonioxOptions): Session 
       if (newFinalTranslation) t.committedTranslation = mergeTranscript(t.committedTranslation, newFinalTranslation);
       t.pendingTranslation = curNonFinalTranslation;
 
-      const originalSoFar = t.committedOriginal + t.pendingOriginal;
-      t.originalLang = mapLang(lastOriginalLangCode, originalSoFar);
-      t.targetLang = other(t.originalLang);
+      const visible = (t.committedOriginal + t.pendingOriginal).trim();
+      t.originalLang = resolveLang(lastOriginalLangCode, visible);
 
       emitTurn();
       scheduleTimers();
@@ -220,7 +210,6 @@ export function startSonioxSession(ws: WebSocket, opts: SonioxOptions): Session 
       //  - immediately at a natural clause boundary, or
       //  - at least every translateMaxIntervalMs during continuous speech, when
       //    the original has grown since the last translation.
-      const visible = (t.committedOriginal + t.pendingOriginal).trim();
       const grew = visible.length > t.lastTranslatedSource.length;
       if (newFinalOriginal && endsAtClauseBoundary(t.committedOriginal)) {
         void runTranslation();
@@ -250,8 +239,8 @@ export function startSonioxSession(ws: WebSocket, opts: SonioxOptions): Session 
         enable_endpoint_detection: true,
         translation: {
           type: 'two_way',
-          language_a: sonioxLangCode('en'),
-          language_b: sonioxLangCode('zh'),
+          language_a: 'en',
+          language_b: 'zh',
         },
       }));
       send({ type: 'ready', model: `${SONIOX_MODEL} + deepseek` });

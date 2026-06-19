@@ -1,4 +1,4 @@
-import type { Lang } from './types';
+import { other, type Lang } from './types';
 
 export interface TranslateInput {
   /** Committed original clause/utterance so far. */
@@ -60,7 +60,7 @@ export function createDeepSeekTranslator(opts: DeepSeekOptions): Translator {
 
   return {
     async translate(input, onDelta) {
-      const target: Lang = input.originalLang === 'en' ? 'zh' : 'en';
+      const target: Lang = other(input.originalLang);
       const targetName = target === 'zh' ? 'Simplified Chinese' : 'English';
 
       const userParts: string[] = [];
