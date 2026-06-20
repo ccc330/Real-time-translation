@@ -22,7 +22,6 @@ function segmentToConfig(s: number) {
 export default function App() {
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
   const [mockMode, setMockMode] = useState(false);
-  const [model, setModel] = useState<string | null>(null);
   const [messages, setMessages] = useState<TranslationMessage[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [segment, setSegment] = useState(() => {
@@ -47,7 +46,6 @@ export default function App() {
     disconnectWS();
     setStatus('connecting');
     setMockMode(false);
-    setModel(null);
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${protocol}//${window.location.host}/live`);
@@ -70,7 +68,6 @@ export default function App() {
         case 'ready':
           setStatus('ready');
           setMockMode(false);
-          setModel(payload.model ?? null);
           break;
         case 'mockInfo':
           setMockMode(true);
@@ -181,7 +178,6 @@ export default function App() {
       <Topbar
         status={status}
         mockMode={mockMode}
-        model={model}
         hasMessages={messages.length > 0}
         segment={segment}
         onSegmentChange={handleSegmentChange}

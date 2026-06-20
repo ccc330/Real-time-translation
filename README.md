@@ -4,8 +4,9 @@ Browser-based Chinese↔English live-caption translator. Two people speak face-t
 the top panel shows English, the bottom panel shows Chinese, each as live captions.
 
 Translation pipeline: **Soniox** real-time multilingual STT (auto zh/en, code-switching)
-→ **DeepSeek V4 Flash** streaming translation, with Soniox's built-in translation as an
-instant fallback. Client-side VAD only streams speech, keeping STT cost low.
+→ streaming LLM translation (**Xiaomi MiMo UltraSpeed** by default, ~1000 tok/s; DeepSeek
+selectable), with Soniox's built-in translation shown instantly as the first pass. Client-side
+VAD only streams speech, keeping STT cost low.
 
 ## Run Locally
 
@@ -15,8 +16,9 @@ instant fallback. Client-side VAD only streams speech, keeping STT cost low.
    `npm install`
 2. Copy `.env.example` to `.env` and set your keys:
    - `SONIOX_API_KEY` — required for live mode (else the app runs a no-key demo).
-   - `DEEPSEEK_API_KEY` — optional; without it, translation uses Soniox's built-in
-     two-way translation instead of DeepSeek.
+   - `MIMO_API_KEY` — translation (default provider). Without it (and no DeepSeek key),
+     translation falls back to Soniox's built-in two-way translation.
+   - To switch provider: `TRANSLATE_PROVIDER=deepseek` + `DEEPSEEK_API_KEY`.
 3. Run the app:
    `npm run dev`
 

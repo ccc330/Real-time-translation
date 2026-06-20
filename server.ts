@@ -43,7 +43,7 @@ const sonioxKey = () => (process.env.SONIOX_API_KEY || '').trim();
 
 // Translation provider — OpenAI-compatible. Switch via TRANSLATE_PROVIDER for A/B.
 type ProviderName = 'deepseek' | 'mimo';
-const TRANSLATE_PROVIDER = (process.env.TRANSLATE_PROVIDER || 'deepseek').toLowerCase() as ProviderName;
+const TRANSLATE_PROVIDER = (process.env.TRANSLATE_PROVIDER || 'mimo').toLowerCase() as ProviderName;
 const PROVIDERS: Record<
   ProviderName,
   { baseUrl: string; model: string; key: () => string; extraBody?: Record<string, unknown> }

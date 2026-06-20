@@ -6,12 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Browser-based Chinese↔English live-caption translator. Two people speak face-to-face; the
 top panel shows English, the bottom panel shows Chinese, each as live captions. Frontend (React 19 +
-Vite + Tailwind v4 + shadcn/ui) and backend (Express + `ws` + Soniox STT + DeepSeek MT) run in a
+Vite + Tailwind v4 + shadcn/ui) and backend (Express + `ws` + Soniox STT + LLM MT) run in a
 **single Node process** — there is no separate client/server build or proxy.
 
 Translation pipeline: **Soniox** real-time multilingual STT (one session, two-way zh↔en
-translation enabled) produces the original captions; committed clauses are translated by
-**DeepSeek V4 Flash** (streaming), with Soniox's built-in translation as an instant fallback.
+translation enabled) produces the original captions; the text is translated by a streaming LLM
+(**Xiaomi MiMo UltraSpeed** by default, ~1000 tok/s; DeepSeek selectable via `TRANSLATE_PROVIDER`),
+with Soniox's built-in translation shown instantly as the first pass.
 
 ## Commands
 
@@ -38,8 +39,8 @@ server process does not watch itself.
 Keys live **only on the server** (no per-user key entry / KeyDialog). See `.env.example`.
 
 - `SONIOX_API_KEY` — real-time STT. If empty, the server runs MOCK mode.
-- `TRANSLATE_PROVIDER` — `deepseek` | `mimo` (OpenAI-compatible). Selects the translation backend
-  for A/B'ing speed vs quality. Falls back to Soniox built-in translation if the chosen key is empty.
+- `TRANSLATE_PROVIDER` — `mimo` (default) | `deepseek` (OpenAI-compatible). Selects the translation
+  backend. Falls back to Soniox built-in translation if the chosen provider's key is empty.
 - `DEEPSEEK_API_KEY` / `DEEPSEEK_MODEL` (`deepseek-v4-flash`).
 - `MIMO_API_KEY` / `MIMO_MODEL` (`mimo-v2.5-pro-ultraspeed`, `https://api.xiaomimimo.com/v1`, ~1000 tok/s).
 - `TRANSLATE_FIRST_TOKEN_MS` (1200) — soft first-token deadline (→ Soniox fallback).

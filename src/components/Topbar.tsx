@@ -6,7 +6,6 @@ import { cn } from '@/lib/utils';
 interface TopbarProps {
   status: ConnectionStatus;
   mockMode: boolean;
-  model: string | null;
   hasMessages: boolean;
   segment: number;
   onSegmentChange: (value: number) => void;
@@ -25,7 +24,6 @@ function statusInfo(status: ConnectionStatus, mockMode: boolean) {
 export function Topbar({
   status,
   mockMode,
-  model,
   hasMessages,
   segment,
   onSegmentChange,
@@ -41,9 +39,6 @@ export function Topbar({
           <span className={cn('size-1.5 rounded-full', s.dot)} />
           <span className="text-[11px] font-medium text-muted-foreground">{s.label}</span>
         </span>
-        {!mockMode && status === 'ready' && model && (
-          <span className="hidden text-[11px] text-muted-foreground/60 sm:inline">{model}</span>
-        )}
       </div>
 
       <div className="flex items-center gap-3">

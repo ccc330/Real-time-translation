@@ -284,7 +284,7 @@ export function startSonioxSession(ws: WebSocket, opts: SonioxOptions): Session 
           language_b: 'zh',
         },
       }));
-      send({ type: 'ready', model: `${SONIOX_MODEL} + deepseek` });
+      send({ type: 'ready', model: SONIOX_MODEL });
     });
 
     sx.on('message', (raw) => {
