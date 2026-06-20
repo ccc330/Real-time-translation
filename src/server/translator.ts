@@ -40,6 +40,8 @@ export interface TranslatorOptions {
   firstTokenMs: number;
   /** Inactivity deadline: abort + fail if the stream stalls (reset on each token). */
   timeoutMs: number;
+  /** Extra request-body fields merged in (e.g. MiMo's `thinking: {type:"disabled"}`). */
+  extraBody?: Record<string, unknown>;
 }
 
 // Kept short and stable: fewer prefix tokens = faster first token, and a stable
@@ -124,6 +126,7 @@ export function createTranslator(opts: TranslatorOptions): Translator {
               { role: 'system', content: SYSTEM_PROMPT },
               { role: 'user', content: userParts.join('\n') },
             ],
+            ...(opts.extraBody || {}),
           }),
           signal: ac.signal,
         });
@@ -152,7 +155,12 @@ export function createTranslator(opts: TranslatorOptions): Translator {
             if (data === '[DONE]') break;
             try {
               const json = JSON.parse(data);
-              const delta: string = json.choices?.[0]?.delta?.content ?? '';
+              const choiceDelta = json.choices?.[0]?.delta;
+              // Reasoning models (e.g. MiMo) stream `reasoning_content` before the
+              // answer. We disable thinking via extraBody, but defensively: keep the
+              // stream alive on reasoning, yet never let it pollute the translation.
+              if (choiceDelta?.reasoning_content) resetStall();
+              const delta: string = choiceDelta?.content ?? '';
               if (delta) {
                 if (!gotFirstToken) {
                   gotFirstToken = true;

@@ -44,7 +44,10 @@ const sonioxKey = () => (process.env.SONIOX_API_KEY || '').trim();
 // Translation provider — OpenAI-compatible. Switch via TRANSLATE_PROVIDER for A/B.
 type ProviderName = 'deepseek' | 'mimo';
 const TRANSLATE_PROVIDER = (process.env.TRANSLATE_PROVIDER || 'deepseek').toLowerCase() as ProviderName;
-const PROVIDERS: Record<ProviderName, { baseUrl: string; model: string; key: () => string }> = {
+const PROVIDERS: Record<
+  ProviderName,
+  { baseUrl: string; model: string; key: () => string; extraBody?: Record<string, unknown> }
+> = {
   deepseek: {
     baseUrl: 'https://api.deepseek.com',
     model: process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash',
@@ -54,6 +57,9 @@ const PROVIDERS: Record<ProviderName, { baseUrl: string; model: string; key: () 
     baseUrl: 'https://api.xiaomimimo.com/v1',
     model: process.env.MIMO_MODEL || 'mimo-v2.5-pro-ultraspeed',
     key: () => (process.env.MIMO_API_KEY || '').trim(),
+    // MiMo is a reasoning model (thinking on by default → slow first token + wasted
+    // tokens). Disable it for low-latency direct translation.
+    extraBody: { thinking: { type: 'disabled' } },
   },
 };
 const provider = () => PROVIDERS[TRANSLATE_PROVIDER] ?? PROVIDERS.deepseek;
@@ -122,6 +128,7 @@ wss.on('connection', (ws) => {
             baseUrl: p.baseUrl,
             firstTokenMs: TRANSLATE_FIRST_TOKEN_MS,
             timeoutMs: TRANSLATE_TIMEOUT_MS,
+            extraBody: p.extraBody,
           })
         : null;
       console.log(tKey

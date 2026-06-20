@@ -54,6 +54,7 @@ const translator = tKey
       baseUrl: useMimo ? 'https://api.xiaomimimo.com/v1' : 'https://api.deepseek.com',
       firstTokenMs: 1200,
       timeoutMs: 2500,
+      extraBody: useMimo ? { thinking: { type: 'disabled' } } : undefined,
     })
   : null;
 
