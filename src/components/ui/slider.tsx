@@ -17,9 +17,19 @@ export function Slider({
       ? Array.from({ length: stepCount + 1 }, (_, index) => min + index * step)
       : [min, min + (max - min) * 0.25, min + (max - min) * 0.5, min + (max - min) * 0.75, max];
 
+  // While dragging, the thumb must track the finger 1:1 (no easing). On
+  // click/keyboard changes it glides with the same spring as the segmented
+  // control below, so the two controls feel like one motion language.
+  const [dragging, setDragging] = React.useState(false);
+  const endDrag = () => setDragging(false);
+
   return (
     <SliderPrimitive.Root
       className={cn('relative flex h-6 w-full touch-none select-none items-center px-0.5', className)}
+      onPointerDown={() => setDragging(true)}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      onLostPointerCapture={endDrag}
       {...props}
     >
       <SliderPrimitive.Track className="relative h-5 w-full grow overflow-hidden rounded-[7px] bg-[#dededb]">
@@ -43,7 +53,10 @@ export function Slider({
       </SliderPrimitive.Track>
       <SliderPrimitive.Thumb
         className={cn(
-          'block h-[19px] w-4 rounded-[7px] border border-black/5 bg-white shadow-[0_1px_4px_oklch(0_0_0_/_0.12)] outline-none transition',
+          'block h-[19px] w-4 rounded-[7px] border border-black/5 bg-white shadow-[0_1px_4px_oklch(0_0_0_/_0.12)] outline-none',
+          dragging
+            ? 'transition-none'
+            : 'transition-all duration-300 ease-[cubic-bezier(0.34,1.4,0.5,1)] motion-reduce:transition-none',
           'hover:scale-105 focus-visible:ring-2 focus-visible:ring-brand/35 active:scale-100',
         )}
       />

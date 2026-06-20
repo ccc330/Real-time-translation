@@ -44,8 +44,8 @@ const providerTag = (provider: TranslationProviderOption): string => {
 function Row({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex items-center justify-between rounded-2xl bg-muted px-4 py-3.5">
-      <span className="text-sm text-muted-foreground">{label}</span>
-      <span className="text-sm font-medium text-foreground">{value}</span>
+      <span className="text-sm font-medium text-foreground">{label}</span>
+      <span className="text-sm text-muted-foreground">{value}</span>
     </div>
   );
 }
@@ -75,7 +75,7 @@ export function SettingsPanel({
 
         <div className="rounded-2xl bg-muted px-4 py-3.5">
           <div className="mb-4 flex items-center justify-between gap-3">
-            <span className="text-sm font-medium text-muted-foreground">断句颗粒度</span>
+            <span className="text-sm font-medium text-foreground">断句颗粒度</span>
             <CircleHelp className="size-3.5 shrink-0 text-muted-foreground/45" aria-hidden="true" />
           </div>
 
