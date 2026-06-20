@@ -67,6 +67,10 @@
   /* Brand accent — warm coral-orange from the moodboard, used sparingly. */
   --brand: oklch(0.69 0.18 41);
   --brand-foreground: oklch(0.985 0 0);
+  /* Müller-Brockmann editorial grid: one source of truth for margins/measure. */
+  --mbk-maxw: 1320px;
+  --mbk-margin: clamp(1.75rem, 6vw, 6rem);
+  --mbk-bl: 8px;
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
   --primary: oklch(0.205 0 0);

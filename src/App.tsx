@@ -259,6 +259,12 @@ export default function App() {
     toast.info('翻译引擎已切换，正在重新连接');
   };
 
+  // Which panel currently shows the spoken original (live input) vs the translation.
+  const newestMessage = messages[messages.length - 1];
+  const activeUtterance = !!newestMessage && !newestMessage.completed;
+  const roleFor = (l: 'en' | 'zh'): 'source' | 'target' | 'idle' =>
+    activeUtterance ? (newestMessage!.originalLang === l ? 'source' : 'target') : 'idle';
+
   const footerText = mockMode
     ? '演示模式 · 服务器未配置语音识别 Key'
     : isRecording
@@ -280,26 +286,33 @@ export default function App() {
       <main className="relative flex min-h-0 flex-1 flex-col">
         <TranslationPanel
           lang="en"
+          index="01"
+          role={roleFor('en')}
           messages={messages}
           anchor="bottom"
           placeholder="Tap the mic and speak…"
         />
 
-          <div className="mx-6 h-px bg-border/70 md:mx-12" />
+        <div className="relative">
+          <div className="mx-auto w-full max-w-[var(--mbk-maxw)] px-[var(--mbk-margin)]">
+            <div className="h-px bg-border" />
+          </div>
+          <div className="absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2">
+            <MicButton isRecording={isRecording} status={status} onClick={handleMicToggle} />
+          </div>
+        </div>
 
         <TranslationPanel
           lang="zh"
+          index="02"
+          role={roleFor('zh')}
           messages={messages}
           anchor="top"
           placeholder="点麦克风，开口即译…"
         />
-
-        <div className="absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2">
-          <MicButton isRecording={isRecording} status={status} onClick={handleMicToggle} />
-        </div>
       </main>
 
-      <footer className="flex h-9 shrink-0 items-center justify-center px-4 text-[11px] text-muted-foreground/60">
+      <footer className="flex h-10 shrink-0 items-center px-[var(--mbk-margin)] text-[12px] font-medium tracking-wide text-muted-foreground/50">
         {footerText}
       </footer>
 

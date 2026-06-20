@@ -24,7 +24,7 @@ export function Topbar({ status, mockMode, hasMessages, onOpenSettings, onClear 
   const s = statusInfo(status, mockMode);
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between px-4 md:px-6">
+    <header className="flex h-14 shrink-0 items-center justify-between px-[var(--mbk-margin)]">
       <div className="flex items-center gap-2.5">
         <span className="text-[15px] font-semibold tracking-tight">实时翻译</span>
         <span className="flex items-center gap-1.5 rounded-full bg-card px-2.5 py-1 shadow-soft">
