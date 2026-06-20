@@ -1,4 +1,4 @@
-import { KeyRound, Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ConnectionStatus } from '@/types';
 import { cn } from '@/lib/utils';
@@ -6,9 +6,9 @@ import { cn } from '@/lib/utils';
 interface TopbarProps {
   status: ConnectionStatus;
   mockMode: boolean;
-  model: string | null;
   hasMessages: boolean;
-  onOpenKey: () => void;
+  segment: number;
+  onSegmentChange: (value: number) => void;
   onClear: () => void;
 }
 
@@ -21,7 +21,14 @@ function statusInfo(status: ConnectionStatus, mockMode: boolean) {
   return { dot: 'bg-emerald-500', label: '在线' };
 }
 
-export function Topbar({ status, mockMode, model, hasMessages, onOpenKey, onClear }: TopbarProps) {
+export function Topbar({
+  status,
+  mockMode,
+  hasMessages,
+  segment,
+  onSegmentChange,
+  onClear,
+}: TopbarProps) {
   const s = statusInfo(status, mockMode);
 
   return (
@@ -32,15 +39,22 @@ export function Topbar({ status, mockMode, model, hasMessages, onOpenKey, onClea
           <span className={cn('size-1.5 rounded-full', s.dot)} />
           <span className="text-[11px] font-medium text-muted-foreground">{s.label}</span>
         </span>
-        {!mockMode && status === 'ready' && model && (
-          <span className="hidden text-[11px] text-muted-foreground/60 sm:inline">{model}</span>
-        )}
       </div>
 
-      <div className="flex items-center gap-1">
-        <Button variant="ghost" size="icon" onClick={onOpenKey} aria-label="设置 API Key">
-          <KeyRound className="size-4" />
-        </Button>
+      <div className="flex items-center gap-3">
+        <label className="flex items-center gap-2" title="断句颗粒度：左=短句更跟手（快速/新闻），右=长句更完整（日常对话）">
+          <span className="hidden text-[11px] text-muted-foreground/60 sm:inline">断句</span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            value={segment}
+            onChange={(e) => onSegmentChange(Number(e.target.value))}
+            aria-label="断句颗粒度"
+            className="h-1 w-20 cursor-pointer accent-foreground/70 md:w-28"
+          />
+        </label>
         <Button
           variant="ghost"
           size="icon"

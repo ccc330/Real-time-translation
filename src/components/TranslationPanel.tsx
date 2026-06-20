@@ -94,7 +94,7 @@ export function TranslationPanel({ lang, messages, placeholder, anchor }: Transl
               <p
                 key={m.id}
                 className={cn(
-                  'max-w-3xl whitespace-pre-line break-words leading-tight tracking-tight transition-all duration-300',
+                  'max-w-3xl whitespace-pre-line break-words leading-tight tracking-tight transition-[font-size,color,opacity] duration-200',
                   depth === 0 && 'text-3xl font-medium text-foreground md:text-5xl',
                   depth === 1 && 'text-xl text-muted-foreground/70 md:text-2xl',
                   depth >= 2 && 'text-base text-muted-foreground/35 md:text-lg',
