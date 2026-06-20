@@ -1,37 +1,54 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { TranslationMessage, ConnectionStatus } from '@/types';
+import { TranslationMessage, ConnectionStatus, TranslationProvider, TranslationProviderOption } from '@/types';
 import { AudioRecorder } from '@/utils/recorder';
 import { Topbar } from '@/components/Topbar';
 import { TranslationPanel } from '@/components/TranslationPanel';
 import { MicButton } from '@/components/MicButton';
+import { SettingsPanel } from '@/components/SettingsPanel';
 import { Toaster } from '@/components/ui/sonner';
+import { DEFAULT_SEGMENT_DELAY_MS, normalizeSegmentDelayMs, segmentDelayToConfig } from '@/segment';
 import { toast } from 'sonner';
 
 const SEGMENT_STORAGE = 'segment_granularity';
+const TRANSLATE_PROVIDER_STORAGE = 'translate_provider';
 
-// Map the 0–100 "segmentation granularity" slider to server-side knobs.
-// Low = fragmented/snappy (fast speech, news); high = longer, fuller sentences.
-function segmentToConfig(s: number) {
-  const t = Math.min(1, Math.max(0, s / 100));
-  return {
-    maxTurnChars: Math.round(50 + t * 200), // 50 .. 250 chars
-    idlePendingMs: Math.round(700 + t * 2600), // 700 .. 3300 ms
-  };
-}
+const isTranslationProvider = (value: unknown): value is TranslationProvider =>
+  value === 'deepseek' || value === 'mimo';
 
 export default function App() {
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
   const [mockMode, setMockMode] = useState(false);
   const [messages, setMessages] = useState<TranslationMessage[]>([]);
   const [isRecording, setIsRecording] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [configLoaded, setConfigLoaded] = useState(false);
+  const [translateProvider, setTranslateProvider] = useState<TranslationProvider | null>(() => {
+    const stored = localStorage.getItem(TRANSLATE_PROVIDER_STORAGE);
+    return isTranslationProvider(stored) ? stored : null;
+  });
+  const [engine, setEngine] = useState<{
+    sttModel: string | null;
+    translateModel: string | null;
+    translateProvider: TranslationProvider | null;
+    translateProviders: TranslationProviderOption[];
+    mock: boolean;
+  }>({
+    sttModel: null,
+    translateModel: null,
+    translateProvider: null,
+    translateProviders: [],
+    mock: false,
+  });
   const [segment, setSegment] = useState(() => {
     const v = Number(localStorage.getItem(SEGMENT_STORAGE));
-    return Number.isFinite(v) && v > 0 ? v : 45;
+    return Number.isFinite(v) ? normalizeSegmentDelayMs(v) : DEFAULT_SEGMENT_DELAY_MS;
   });
 
   const wsRef = useRef<WebSocket | null>(null);
   const recorderRef = useRef<AudioRecorder | null>(null);
   const segmentRef = useRef(segment);
+  const sessionStartedRef = useRef(false);
+  const pendingRecordingStartRef = useRef(false);
 
   const disconnectWS = useCallback(() => {
     const ws = wsRef.current;
@@ -40,7 +57,41 @@ export default function App() {
       ws.close();
       wsRef.current = null;
     }
+    sessionStartedRef.current = false;
+    pendingRecordingStartRef.current = false;
   }, []);
+
+  const startRecorder = useCallback(async () => {
+    if (recorderRef.current) return;
+
+    let recorder: AudioRecorder;
+    recorder = new AudioRecorder(
+      (pcm) => {
+        // Send raw PCM16 as a binary WS frame (no base64 / JSON overhead).
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(pcm);
+        }
+      },
+      (err: any) => {
+        toast.error(err?.message ? `麦克风：${err.message}` : '无法访问麦克风');
+        if (recorderRef.current === recorder) recorderRef.current = null;
+        setIsRecording(false);
+      },
+    );
+    recorderRef.current = recorder;
+    await recorder.start();
+    if (recorderRef.current === recorder) setIsRecording(true);
+  }, []);
+
+  const requestSessionStart = useCallback(() => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN || sessionStartedRef.current) return false;
+    sessionStartedRef.current = true;
+    setStatus('initializing_gemini');
+    ws.send(JSON.stringify({ type: 'init', translateProvider }));
+    ws.send(JSON.stringify({ type: 'config', ...segmentDelayToConfig(segmentRef.current) }));
+    return true;
+  }, [translateProvider]);
 
   const connectWS = useCallback(() => {
     disconnectWS();
@@ -52,9 +103,8 @@ export default function App() {
     wsRef.current = ws;
 
     ws.onopen = () => {
-      setStatus('initializing_gemini');
-      ws.send(JSON.stringify({ type: 'init' }));
-      ws.send(JSON.stringify({ type: 'config', ...segmentToConfig(segmentRef.current) }));
+      setStatus('ready');
+      if (pendingRecordingStartRef.current) requestSessionStart();
     };
 
     ws.onmessage = (event) => {
@@ -68,10 +118,18 @@ export default function App() {
         case 'ready':
           setStatus('ready');
           setMockMode(false);
+          if (pendingRecordingStartRef.current) {
+            pendingRecordingStartRef.current = false;
+            void startRecorder();
+          }
           break;
         case 'mockInfo':
           setMockMode(true);
           setStatus('ready');
+          if (pendingRecordingStartRef.current) {
+            pendingRecordingStartRef.current = false;
+            void startRecorder();
+          }
           break;
         case 'error':
           setStatus('error');
@@ -115,15 +173,40 @@ export default function App() {
     };
 
     ws.onerror = () => setStatus('error');
-  }, [disconnectWS]);
+  }, [disconnectWS, requestSessionStart, startRecorder]);
 
   useEffect(() => {
+    if (!configLoaded || !translateProvider) return;
     connectWS();
     return () => {
       disconnectWS();
       recorderRef.current?.stop();
+      recorderRef.current = null;
     };
-  }, [connectWS, disconnectWS]);
+  }, [configLoaded, connectWS, disconnectWS, translateProvider]);
+
+  useEffect(() => {
+    fetch('/api/config')
+      .then((r) => r.json())
+      .then((c) => {
+        const serverProvider = isTranslationProvider(c.translateProvider) ? c.translateProvider : 'mimo';
+        const providers = Array.isArray(c.translateProviders)
+          ? c.translateProviders.filter((p: TranslationProviderOption) => isTranslationProvider(p?.id))
+          : [];
+        setEngine({
+          sttModel: c.sttModel ?? null,
+          translateModel: c.translateModel ?? null,
+          translateProvider: serverProvider,
+          translateProviders: providers,
+          mock: !!c.mock,
+        });
+        setTranslateProvider((current) => current ?? serverProvider);
+      })
+      .catch(() => {
+        setTranslateProvider((current) => current ?? 'mimo');
+      })
+      .finally(() => setConfigLoaded(true));
+  }, []);
 
   const handleMicToggle = async () => {
     if (isRecording) {
@@ -136,33 +219,44 @@ export default function App() {
       return;
     }
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      pendingRecordingStartRef.current = true;
       connectWS();
       return;
     }
-    const recorder = new AudioRecorder(
-      (pcm) => {
-        // Send raw PCM16 as a binary WS frame (no base64 / JSON overhead).
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-          wsRef.current.send(pcm);
-        }
-      },
-      (err: any) => {
-        toast.error(err?.message ? `麦克风：${err.message}` : '无法访问麦克风');
-        setIsRecording(false);
-      },
-    );
-    recorderRef.current = recorder;
-    await recorder.start();
-    setIsRecording(true);
+    if (!sessionStartedRef.current) {
+      pendingRecordingStartRef.current = true;
+      requestSessionStart();
+      return;
+    }
+    await startRecorder();
   };
 
   const handleSegmentChange = (value: number) => {
-    setSegment(value);
-    segmentRef.current = value;
-    localStorage.setItem(SEGMENT_STORAGE, String(value));
+    const normalizedValue = normalizeSegmentDelayMs(value);
+    setSegment(normalizedValue);
+    segmentRef.current = normalizedValue;
+    localStorage.setItem(SEGMENT_STORAGE, String(normalizedValue));
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'config', ...segmentToConfig(value) }));
+      wsRef.current.send(JSON.stringify({ type: 'config', ...segmentDelayToConfig(normalizedValue) }));
     }
+  };
+
+  const handleTranslateProviderChange = (value: TranslationProvider) => {
+    if (value === translateProvider) return;
+    if (isRecording) {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'audio_end' }));
+      }
+      recorderRef.current?.stop();
+      recorderRef.current = null;
+      setIsRecording(false);
+    }
+    sessionStartedRef.current = false;
+    pendingRecordingStartRef.current = false;
+    localStorage.setItem(TRANSLATE_PROVIDER_STORAGE, value);
+    setTranslateProvider(value);
+    setEngine((prev) => ({ ...prev, translateProvider: value }));
+    toast.info('翻译引擎已切换，正在重新连接');
   };
 
   const footerText = mockMode
@@ -179,8 +273,7 @@ export default function App() {
         status={status}
         mockMode={mockMode}
         hasMessages={messages.length > 0}
-        segment={segment}
-        onSegmentChange={handleSegmentChange}
+        onOpenSettings={() => setSettingsOpen(true)}
         onClear={() => setMessages([])}
       />
 
@@ -192,7 +285,7 @@ export default function App() {
           placeholder="Tap the mic and speak…"
         />
 
-        <div className="mx-6 h-px bg-border md:mx-12" />
+          <div className="mx-6 h-px bg-border/70 md:mx-12" />
 
         <TranslationPanel
           lang="zh"
@@ -209,6 +302,19 @@ export default function App() {
       <footer className="flex h-9 shrink-0 items-center justify-center px-4 text-[11px] text-muted-foreground/60">
         {footerText}
       </footer>
+
+      <SettingsPanel
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        segment={segment}
+        onSegmentChange={handleSegmentChange}
+        translateProvider={translateProvider ?? engine.translateProvider ?? 'mimo'}
+        translateProviders={engine.translateProviders}
+        onTranslateProviderChange={handleTranslateProviderChange}
+        sttModel={engine.sttModel}
+        translateModel={engine.translateModel}
+        mock={engine.mock}
+      />
 
       <Toaster position="top-center" richColors />
     </div>

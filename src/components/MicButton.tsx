@@ -19,11 +19,11 @@ export function MicButton({ isRecording, status, onClick }: MicButtonProps) {
       disabled={isDisabled}
       aria-label={isRecording ? '停止聆听' : '开始聆听'}
       className={cn(
-        'relative grid size-16 place-items-center rounded-full border shadow-sm outline-none transition-all',
-        'focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px',
-        isDisabled && 'cursor-not-allowed border-border bg-muted text-muted-foreground',
-        !isDisabled && isRecording && 'border-transparent bg-destructive text-white',
-        !isDisabled && !isRecording && 'border-transparent bg-primary text-primary-foreground hover:bg-primary/90',
+        'relative grid size-16 place-items-center rounded-full outline-none transition-all duration-200',
+        'shadow-soft-lg focus-visible:ring-4 focus-visible:ring-brand/30 active:translate-y-px',
+        isDisabled && 'cursor-not-allowed bg-muted text-muted-foreground shadow-none',
+        !isDisabled && isRecording && 'bg-destructive text-white hover:bg-destructive/90',
+        !isDisabled && !isRecording && 'bg-primary text-primary-foreground hover:scale-105',
       )}
     >
       {isRecording && (

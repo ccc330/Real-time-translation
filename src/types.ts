@@ -9,3 +9,12 @@ export interface TranslationMessage {
 }
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'initializing_gemini' | 'ready' | 'error';
+
+export type TranslationProvider = 'deepseek' | 'mimo';
+
+export interface TranslationProviderOption {
+  id: TranslationProvider;
+  label: string;
+  model: string;
+  configured: boolean;
+}

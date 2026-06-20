@@ -48,6 +48,8 @@
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -58,10 +60,13 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
+  --background: oklch(0.975 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
+  /* Brand accent — warm coral-orange from the moodboard, used sparingly. */
+  --brand: oklch(0.69 0.18 41);
+  --brand-foreground: oklch(0.985 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
   --primary: oklch(0.205 0 0);
@@ -135,5 +140,19 @@
   }
   html {
     @apply font-sans;
+  }
+}
+
+@layer utilities {
+  /* Soft, low, diffuse shadow for the moodboard card/control aesthetic. */
+  .shadow-soft {
+    box-shadow:
+      0 1px 2px oklch(0 0 0 / 0.04),
+      0 6px 16px oklch(0 0 0 / 0.06);
+  }
+  .shadow-soft-lg {
+    box-shadow:
+      0 2px 4px oklch(0 0 0 / 0.05),
+      0 16px 40px oklch(0 0 0 / 0.1);
   }
 }
