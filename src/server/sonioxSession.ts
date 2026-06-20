@@ -16,6 +16,9 @@ export interface SonioxOptions {
   idlePendingMs: number;
   /** Soniox endpoint delay (ms, 500-3000): lower finalizes turns sooner. */
   maxEndpointDelayMs: number;
+  /** Force a sentence break once committed text reaches this many chars (fast
+   *  speech with no pauses never triggers an endpoint, so this caps caption size). */
+  maxTurnChars: number;
   maxReconnect: number;
   /** Optional hard cap on audio seconds forwarded to Soniox (budget guard). */
   maxSessionAudioSec?: number;
@@ -62,6 +65,10 @@ export function startSonioxSession(ws: WebSocket, opts: SonioxOptions): Session 
   let turn: LiveTurn | null = null;
   let completeTimer: NodeJS.Timeout | null = null;
   const recentContext: string[] = [];
+
+  // Segmentation knobs — mutable so the client slider can tune them live.
+  let idlePendingMs = opts.idlePendingMs;
+  let maxTurnChars = opts.maxTurnChars;
 
   const send = (frame: ServerFrame) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(frame));
@@ -141,7 +148,38 @@ export function startSonioxSession(ws: WebSocket, opts: SonioxOptions): Session 
 
   const scheduleComplete = () => {
     if (completeTimer) clearTimeout(completeTimer);
-    completeTimer = setTimeout(() => void completeTurn(), opts.idlePendingMs);
+    completeTimer = setTimeout(() => void completeTurn(), idlePendingMs);
+  };
+
+  // Fast speech with no pauses never triggers an endpoint, so cap the turn by
+  // length: finalize the committed text as its own caption (synchronously, with
+  // whatever translation exists) and let the non-final tail continue in a fresh
+  // turn (Soniox resends non-final tokens, so nothing is lost or duplicated).
+  const forceBreakIfTooLong = () => {
+    if (!turn) return;
+    const t = turn;
+    if (t.committedOriginal.length < maxTurnChars) return;
+    if (!t.translatedText.trim()) {
+      const fb = t.committedTranslation.trim();
+      if (fb) t.translatedText = fb;
+    }
+    if (completeTimer) { clearTimeout(completeTimer); completeTimer = null; }
+    send({
+      type: 'transcription',
+      id: t.id,
+      originalLang: t.originalLang,
+      targetLang: other(t.originalLang),
+      originalText: t.committedOriginal.trim(),
+      translatedText: t.translatedText.trim(),
+    });
+    if (t.committedOriginal.trim()) {
+      recentContext.push(t.committedOriginal.trim());
+      if (recentContext.length > 6) recentContext.shift();
+    }
+    const id = t.id;
+    t.abort.abort(); // stop the in-flight translation for this finalized chunk
+    turn = null;
+    send({ type: 'complete', id });
   };
 
   const completeTurn = async () => {
@@ -217,6 +255,7 @@ export function startSonioxSession(ws: WebSocket, opts: SonioxOptions): Session 
       emitTurn();
       scheduleComplete();
       kickTranslation(); // worker translates the full text-so-far, coalescing updates
+      forceBreakIfTooLong();
     }
 
     if (endpoint) void completeTurn();
@@ -301,6 +340,10 @@ export function startSonioxSession(ws: WebSocket, opts: SonioxOptions): Session 
       if (isClosed) return;
       try { soniox?.send(''); } catch {} // Soniox end-of-audio signal
       void completeTurn();
+    },
+    configure: (cfg) => {
+      if (typeof cfg.maxTurnChars === 'number' && cfg.maxTurnChars > 0) maxTurnChars = cfg.maxTurnChars;
+      if (typeof cfg.idlePendingMs === 'number' && cfg.idlePendingMs > 0) idlePendingMs = cfg.idlePendingMs;
     },
     cleanup: () => {
       isClosed = true;

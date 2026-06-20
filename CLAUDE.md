@@ -38,14 +38,19 @@ server process does not watch itself.
 Keys live **only on the server** (no per-user key entry / KeyDialog). See `.env.example`.
 
 - `SONIOX_API_KEY` — real-time STT. If empty, the server runs MOCK mode.
-- `DEEPSEEK_API_KEY` — primary translation (`deepseek-v4-flash`). Optional; if empty,
-  translation falls back to Soniox's built-in two-way translation.
-- `TRANSLATE_MODEL` — default `deepseek-v4-flash`.
-- `TRANSLATE_FIRST_TOKEN_MS` (1200) / `TRANSLATE_TIMEOUT_MS` (2500) — translation latency budget:
-  soft first-token deadline, then hard abort (→ Soniox fallback).
-- `IDLE_PENDING_TRANSLATION_MS` (2000) — turn-complete idle timeout. Translation itself runs via a
-  single-flight worker (no debounce knob): it re-translates the full text-so-far whenever DeepSeek is
+- `TRANSLATE_PROVIDER` — `deepseek` | `mimo` (OpenAI-compatible). Selects the translation backend
+  for A/B'ing speed vs quality. Falls back to Soniox built-in translation if the chosen key is empty.
+- `DEEPSEEK_API_KEY` / `DEEPSEEK_MODEL` (`deepseek-v4-flash`).
+- `MIMO_API_KEY` / `MIMO_MODEL` (`mimo-v2.5-pro-ultraspeed`, `https://api.xiaomimimo.com/v1`, ~1000 tok/s).
+- `TRANSLATE_FIRST_TOKEN_MS` (1200) — soft first-token deadline (→ Soniox fallback).
+  `TRANSLATE_TIMEOUT_MS` (2500) — inactivity/stall deadline, reset on each streamed token.
+- `IDLE_PENDING_TRANSLATION_MS` (2000) — turn-complete idle timeout. Translation runs via a
+  single-flight worker (no debounce): it re-translates the full text-so-far whenever the model is
   free, so captions stay complete without re-translation thrash.
+- `SONIOX_MAX_ENDPOINT_DELAY_MS` (1500) — Soniox endpoint delay; lower finalizes turns sooner.
+- `SEGMENT_MAX_CHARS` (120) — force a sentence break at this length (caps caption size for fast,
+  pauseless speech like news). The client "断句" slider overrides this + the idle timeout live
+  (`{type:'config'}` WS message → `Session.configure`).
 - `SONIOX_MAX_RECONNECT` (3) — reconnect attempts on a dropped Soniox session.
 - `MAX_SESSION_AUDIO_SEC` — optional per-connection audio-seconds cap (budget guard).
 - `PORT` — default `3000`.
@@ -75,7 +80,8 @@ translation); otherwise → MOCK.
 Server modules use **relative imports** (not the `@/*` alias, which is client-only).
 
 ### WebSocket protocol
-- client → server: `init {}`, `audio {data}` (base64 PCM16 mono 16 kHz), `audio_end`.
+- client → server: **binary frames = raw PCM16 mono 16 kHz audio**; text JSON = `init {}`,
+  `audio_end`, `config {maxTurnChars?, idlePendingMs?}` (live segmentation tuning from the slider).
 - server → client: `ready {model}`, `mockInfo {message}`, `error {message}`,
   `transcription {id, originalLang, targetLang, originalText, translatedText}`, `complete {id}`.
   `transcription` frames are upserted by `id`; `originalText`/`translatedText` grow as they stream.
@@ -83,12 +89,17 @@ Server modules use **relative imports** (not the `@/*` alias, which is client-on
 ### Translation engine (`startSonioxSession`) — the non-obvious core
 One Soniox real-time WS session per connection (`stt-rt-v5`, `translation: {type:"two_way"}` for
 zh↔en). Original tokens drive captions immediately; `originalLang` comes from each token's language
-tag (fallback `resolveLang`). Translation uses a **single-flight drain worker** (`drainTranslation` /
-`kickTranslation`): at most one DeepSeek request runs per turn, it translates the full original
-so-far and is **never aborted on supersede** — when it finishes it re-checks for newly-arrived text
-and continues. This avoids re-translation thrash (which dropped words/segments) while staying live.
-On DeepSeek failure/stall the turn shows Soniox's built-in translation (tokens with
-`translation_status:"translation"`) instead.
+tag (fallback `resolveLang`). The translator is provider-agnostic (`createTranslator`, any
+OpenAI-compatible API; DeepSeek or MiMo via `TRANSLATE_PROVIDER`). It runs as a **single-flight drain
+worker** (`drainTranslation` / `kickTranslation`): at most one request per turn, translating the full
+original so-far, **never aborted on supersede** — when it finishes it re-checks for new text and
+continues. This avoids re-translation thrash (which dropped words/segments) while staying live.
+Soniox's built-in two-way translation is shown **instantly** (P1) until the model's first token takes
+over (`usingDeepSeek`), and is also the fallback on model failure/stall.
+
+Very fast pauseless speech (e.g. news) never triggers an endpoint, so `forceBreakIfTooLong` caps a
+turn at `maxTurnChars`: it finalizes the committed text as its own caption and lets the non-final tail
+continue in a fresh turn (Soniox resends non-final tokens, so nothing is lost or duplicated).
 
 ### Utterance completion (endpointing)
 A turn finalizes on a real endpoint: a Soniox `<end>` token, `IDLE_PENDING_TRANSLATION_MS` of no

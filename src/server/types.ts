@@ -25,9 +25,12 @@ export const other = (l: Lang): Lang => (l === 'en' ? 'zh' : 'en');
  * The single seam between the WebSocket route handler and any engine
  * (mock or live). Engines are fully interchangeable behind this interface.
  */
+export type SessionConfig = { maxTurnChars?: number; idlePendingMs?: number };
+
 export type Session = {
   onAudio: (pcm: Buffer) => void; // raw PCM16 mono 16 kHz (binary WS frame)
   onAudioEnd?: () => void;
+  configure?: (cfg: SessionConfig) => void; // live segmentation tuning from the client
   cleanup: () => void;
 };
 

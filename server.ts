@@ -31,6 +31,7 @@ const wss = new WebSocketServer({ noServer: true });
 const PORT = Number(process.env.PORT) || 3000;
 const IDLE_PENDING_TRANSLATION_MS = Number(process.env.IDLE_PENDING_TRANSLATION_MS) || 2000;
 const SONIOX_MAX_ENDPOINT_DELAY_MS = Number(process.env.SONIOX_MAX_ENDPOINT_DELAY_MS) || 1500;
+const SEGMENT_MAX_CHARS = Number(process.env.SEGMENT_MAX_CHARS) || 120;
 const TRANSLATE_FIRST_TOKEN_MS = Number(process.env.TRANSLATE_FIRST_TOKEN_MS) || 1200;
 const TRANSLATE_TIMEOUT_MS = Number(process.env.TRANSLATE_TIMEOUT_MS) || 2500;
 const SONIOX_MAX_RECONNECT = Number(process.env.SONIOX_MAX_RECONNECT) || 3;
@@ -132,6 +133,7 @@ wss.on('connection', (ws) => {
         translator,
         idlePendingMs: IDLE_PENDING_TRANSLATION_MS,
         maxEndpointDelayMs: SONIOX_MAX_ENDPOINT_DELAY_MS,
+        maxTurnChars: SEGMENT_MAX_CHARS,
         maxReconnect: SONIOX_MAX_RECONNECT,
         maxSessionAudioSec: MAX_SESSION_AUDIO_SEC,
       });
@@ -140,6 +142,10 @@ wss.on('connection', (ws) => {
 
     if (msg.type === 'audio_end' && session?.onAudioEnd) {
       session.onAudioEnd();
+    }
+
+    if (msg.type === 'config' && session?.configure) {
+      session.configure({ maxTurnChars: msg.maxTurnChars, idlePendingMs: msg.idlePendingMs });
     }
   });
 

@@ -7,15 +7,32 @@ import { MicButton } from '@/components/MicButton';
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 
+const SEGMENT_STORAGE = 'segment_granularity';
+
+// Map the 0–100 "segmentation granularity" slider to server-side knobs.
+// Low = fragmented/snappy (fast speech, news); high = longer, fuller sentences.
+function segmentToConfig(s: number) {
+  const t = Math.min(1, Math.max(0, s / 100));
+  return {
+    maxTurnChars: Math.round(50 + t * 200), // 50 .. 250 chars
+    idlePendingMs: Math.round(700 + t * 2600), // 700 .. 3300 ms
+  };
+}
+
 export default function App() {
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
   const [mockMode, setMockMode] = useState(false);
   const [model, setModel] = useState<string | null>(null);
   const [messages, setMessages] = useState<TranslationMessage[]>([]);
   const [isRecording, setIsRecording] = useState(false);
+  const [segment, setSegment] = useState(() => {
+    const v = Number(localStorage.getItem(SEGMENT_STORAGE));
+    return Number.isFinite(v) && v > 0 ? v : 45;
+  });
 
   const wsRef = useRef<WebSocket | null>(null);
   const recorderRef = useRef<AudioRecorder | null>(null);
+  const segmentRef = useRef(segment);
 
   const disconnectWS = useCallback(() => {
     const ws = wsRef.current;
@@ -39,6 +56,7 @@ export default function App() {
     ws.onopen = () => {
       setStatus('initializing_gemini');
       ws.send(JSON.stringify({ type: 'init' }));
+      ws.send(JSON.stringify({ type: 'config', ...segmentToConfig(segmentRef.current) }));
     };
 
     ws.onmessage = (event) => {
@@ -141,6 +159,15 @@ export default function App() {
     setIsRecording(true);
   };
 
+  const handleSegmentChange = (value: number) => {
+    setSegment(value);
+    segmentRef.current = value;
+    localStorage.setItem(SEGMENT_STORAGE, String(value));
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'config', ...segmentToConfig(value) }));
+    }
+  };
+
   const footerText = mockMode
     ? '演示模式 · 服务器未配置语音识别 Key'
     : isRecording
@@ -156,6 +183,8 @@ export default function App() {
         mockMode={mockMode}
         model={model}
         hasMessages={messages.length > 0}
+        segment={segment}
+        onSegmentChange={handleSegmentChange}
         onClear={() => setMessages([])}
       />
 
