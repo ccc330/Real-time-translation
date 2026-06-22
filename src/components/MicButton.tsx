@@ -22,12 +22,12 @@ export function MicButton({ isRecording, status, onClick }: MicButtonProps) {
         'relative grid size-16 place-items-center rounded-full outline-none transition-all duration-200',
         'shadow-soft-lg focus-visible:ring-4 focus-visible:ring-brand/30 active:translate-y-px',
         isDisabled && 'cursor-not-allowed bg-muted text-muted-foreground shadow-none',
-        !isDisabled && isRecording && 'bg-destructive text-white hover:bg-destructive/90',
+        !isDisabled && isRecording && 'bg-brand text-brand-foreground hover:bg-brand/90',
         !isDisabled && !isRecording && 'bg-primary text-primary-foreground hover:scale-105',
       )}
     >
       {isRecording && (
-        <span className="absolute inset-0 animate-ping rounded-full border border-destructive/40" />
+        <span className="absolute inset-0 animate-ping rounded-full border border-brand/40" />
       )}
       {isPending ? (
         <Loader2 className="size-6 animate-spin" />

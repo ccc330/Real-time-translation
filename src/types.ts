@@ -10,7 +10,13 @@ export interface TranslationMessage {
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'initializing_gemini' | 'ready' | 'error';
 
-export type TranslationProvider = 'deepseek' | 'mimo';
+// The array is the single source of truth for valid provider ids; the type and
+// the runtime guard both derive from it, so client + server never drift.
+export const TRANSLATION_PROVIDERS = ['deepseek', 'mimo'] as const;
+export type TranslationProvider = (typeof TRANSLATION_PROVIDERS)[number];
+
+export const isTranslationProvider = (value: unknown): value is TranslationProvider =>
+  typeof value === 'string' && (TRANSLATION_PROVIDERS as readonly string[]).includes(value);
 
 export interface TranslationProviderOption {
   id: TranslationProvider;

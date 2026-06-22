@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { TranslationMessage, ConnectionStatus, TranslationProvider, TranslationProviderOption } from '@/types';
+import { TranslationMessage, ConnectionStatus, TranslationProvider, TranslationProviderOption, isTranslationProvider } from '@/types';
 import { AudioRecorder } from '@/utils/recorder';
 import { Topbar } from '@/components/Topbar';
 import { TranslationPanel } from '@/components/TranslationPanel';
@@ -11,9 +11,6 @@ import { toast } from 'sonner';
 
 const SEGMENT_STORAGE = 'segment_granularity';
 const TRANSLATE_PROVIDER_STORAGE = 'translate_provider';
-
-const isTranslationProvider = (value: unknown): value is TranslationProvider =>
-  value === 'deepseek' || value === 'mimo';
 
 export default function App() {
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
@@ -64,8 +61,7 @@ export default function App() {
   const startRecorder = useCallback(async () => {
     if (recorderRef.current) return;
 
-    let recorder: AudioRecorder;
-    recorder = new AudioRecorder(
+    const recorder = new AudioRecorder(
       (pcm) => {
         // Send raw PCM16 as a binary WS frame (no base64 / JSON overhead).
         if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -114,22 +110,22 @@ export default function App() {
       } catch {
         return;
       }
+      const startRecorderIfPending = () => {
+        if (!pendingRecordingStartRef.current) return;
+        pendingRecordingStartRef.current = false;
+        void startRecorder();
+      };
+
       switch (payload.type) {
         case 'ready':
           setStatus('ready');
           setMockMode(false);
-          if (pendingRecordingStartRef.current) {
-            pendingRecordingStartRef.current = false;
-            void startRecorder();
-          }
+          startRecorderIfPending();
           break;
         case 'mockInfo':
           setMockMode(true);
           setStatus('ready');
-          if (pendingRecordingStartRef.current) {
-            pendingRecordingStartRef.current = false;
-            void startRecorder();
-          }
+          startRecorderIfPending();
           break;
         case 'error':
           setStatus('error');
@@ -270,7 +266,7 @@ export default function App() {
     : isRecording
       ? '正在聆听…'
       : status === 'ready'
-        ? '轻点麦克风开始'
+        ? ''
         : '连接中…';
 
   return (
@@ -286,7 +282,6 @@ export default function App() {
       <main className="relative flex min-h-0 flex-1 flex-col">
         <TranslationPanel
           lang="en"
-          index="01"
           role={roleFor('en')}
           messages={messages}
           anchor="bottom"
@@ -304,7 +299,6 @@ export default function App() {
 
         <TranslationPanel
           lang="zh"
-          index="02"
           role={roleFor('zh')}
           messages={messages}
           anchor="top"
@@ -312,7 +306,7 @@ export default function App() {
         />
       </main>
 
-      <footer className="flex h-10 shrink-0 items-center px-[var(--mbk-margin)] text-[12px] font-medium tracking-wide text-muted-foreground/50">
+      <footer lang="zh-CN" className="flex h-10 shrink-0 items-center px-[var(--mbk-margin)] text-[12px] font-medium tracking-wide text-muted-foreground/50">
         {footerText}
       </footer>
 

@@ -7,8 +7,6 @@ interface TranslationPanelProps {
   placeholder: string;
   // Where the newest (largest) line sits — toward the centre rule.
   anchor: 'top' | 'bottom';
-  // Müller-Brockmann numbered field label (e.g. "01").
-  index: string;
   // 'source' = this panel currently shows the spoken original (live input);
   // 'target' = it shows the translation; 'idle' = nothing being spoken.
   role: 'source' | 'target' | 'idle';
@@ -61,7 +59,7 @@ const formatCaptionText = (text: string): string => {
   return lines.join('\n');
 };
 
-export function TranslationPanel({ lang, messages, placeholder, anchor, index, role }: TranslationPanelProps) {
+export function TranslationPanel({ lang, messages, placeholder, anchor, role }: TranslationPanelProps) {
   const recent = messages.slice(-3);
   const newestIdx = recent.length - 1;
   const ordered = anchor === 'bottom' ? recent : [...recent].reverse();
@@ -69,15 +67,19 @@ export function TranslationPanel({ lang, messages, placeholder, anchor, index, r
 
   return (
     <section
+      lang={lang === 'zh' ? 'zh-CN' : 'en'}
       className={cn(
         'relative flex min-h-0 flex-1 flex-col',
-        anchor === 'bottom' ? 'justify-end pb-8' : 'justify-start pt-8',
+        anchor === 'bottom' ? 'justify-end pb-16' : 'justify-start pt-16',
       )}
     >
-      <div className="mx-auto w-full max-w-[var(--mbk-maxw)] px-[var(--mbk-margin)]">
-        {/* Numbered field label — flush-left, grotesque, single accent on the index */}
-        <div className="mb-3 flex items-center gap-3">
-          <span className="text-[11px] font-semibold tracking-[0.2em] text-brand tabular-nums">{index}</span>
+      <div
+        className={cn(
+          'pointer-events-none absolute left-0 right-0 z-10',
+          anchor === 'bottom' ? 'bottom-5' : 'top-5',
+        )}
+      >
+        <div className="mx-auto flex w-full max-w-[var(--mbk-maxw)] items-center px-[var(--mbk-margin)]">
           <span className="text-[11px] font-medium uppercase tracking-[0.28em] text-muted-foreground/55">
             {langLabel}
           </span>
@@ -94,34 +96,47 @@ export function TranslationPanel({ lang, messages, placeholder, anchor, index, r
             </span>
           )}
         </div>
+      </div>
 
+      <div className="mx-auto w-full max-w-[var(--mbk-maxw)] px-[var(--mbk-margin)]">
         {recent.length === 0 ? (
-          <p className="text-2xl font-light tracking-tight text-muted-foreground/35 md:text-3xl">
+          <p className="max-w-[min(100%,20ch)] text-2xl font-light tracking-tight text-muted-foreground/35 md:text-3xl">
             {placeholder}
           </p>
         ) : (
-          <div className="flex flex-col items-start gap-2.5 text-left">
+          <div
+            className={cn(
+              'flex min-h-[clamp(10rem,22vh,17rem)] flex-col items-start gap-[calc(var(--mbk-bl)*3)] text-left',
+              'md:gap-[calc(var(--mbk-bl)*5)]',
+            )}
+          >
             {ordered.map((m) => {
               const realIdx = recent.indexOf(m);
               const depth = newestIdx - realIdx; // 0 = newest / largest
               const isActive = depth === 0 && !m.completed;
               const text = formatCaptionText(textForLang(m, lang));
               return (
-                <p
+                <div
                   key={m.id}
-                  className={cn(
-                    'max-w-[min(100%,22ch)] whitespace-pre-line break-words tracking-tight transition-all duration-200 md:max-w-[34ch]',
-                    depth === 0 &&
-                      'text-[clamp(2.25rem,5vw,3.75rem)] font-medium leading-[1.05] text-foreground',
-                    depth === 1 && 'text-[clamp(1.125rem,2.2vw,1.625rem)] leading-[1.2] text-muted-foreground/70',
-                    depth >= 2 && 'text-[clamp(0.9rem,1.4vw,1.0625rem)] leading-[1.3] text-muted-foreground/35',
-                  )}
+                  className="flex min-w-0 items-end self-start"
                 >
-                  {text || ' '}
-                  {isActive && (
-                    <span className="ml-1 inline-block h-[0.8em] w-[3px] translate-y-[2px] animate-pulse bg-brand align-middle" />
-                  )}
-                </p>
+                  <p
+                    className={cn(
+                      'whitespace-pre-line break-words tracking-tight transition-all duration-200',
+                      depth === 0 &&
+                        'max-w-[min(100%,18ch)] text-[clamp(2.75rem,6vw,4.75rem)] font-medium leading-[0.98] text-foreground md:max-w-[22ch]',
+                      depth === 1 &&
+                        'max-w-[min(100%,24ch)] text-[clamp(1.2rem,2vw,1.65rem)] leading-[1.08] text-muted-foreground/70 md:max-w-[28ch]',
+                      depth >= 2 &&
+                        'max-w-[min(100%,30ch)] text-[clamp(0.92rem,1.25vw,1.05rem)] leading-[1.15] text-muted-foreground/35 md:max-w-[34ch]',
+                    )}
+                  >
+                    {text || ' '}
+                    {isActive && (
+                      <span className="ml-1 inline-block h-[0.8em] w-[3px] translate-y-[2px] animate-pulse bg-brand align-middle" />
+                    )}
+                  </p>
+                </div>
               );
             })}
           </div>

@@ -6,7 +6,7 @@ import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
 
 import type { Session } from './src/server/types';
-import type { TranslationProvider } from './src/types';
+import { isTranslationProvider, type TranslationProvider } from './src/types';
 import { startMockInterval } from './src/server/mock';
 import { startSonioxSession } from './src/server/sonioxSession';
 import { createTranslator, Translator } from './src/server/translator';
@@ -52,13 +52,9 @@ type ProviderConfig = {
   extraBody?: Record<string, unknown>;
 };
 
-function isProviderName(value: unknown): value is ProviderName {
-  return value === 'deepseek' || value === 'mimo';
-}
-
 function normalizeProvider(value: unknown, fallback: ProviderName = 'mimo'): ProviderName {
   const providerName = String(value || '').toLowerCase();
-  return isProviderName(providerName) ? providerName : fallback;
+  return isTranslationProvider(providerName) ? providerName : fallback;
 }
 
 const DEFAULT_TRANSLATE_PROVIDER = normalizeProvider(process.env.TRANSLATE_PROVIDER);

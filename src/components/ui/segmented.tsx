@@ -1,10 +1,11 @@
-import { useRef } from 'react';
-import { cn } from '@/lib/utils';
+import { type ReactNode, useRef } from 'react';
+import { cn, hasCjk } from '@/lib/utils';
 
 export interface SegmentedOption<T extends string> {
   value: T;
   label: string;
   sublabel?: string;
+  icon?: ReactNode;
 }
 
 interface SegmentedProps<T extends string> {
@@ -13,6 +14,7 @@ interface SegmentedProps<T extends string> {
   onChange: (value: T) => void;
   ariaLabel?: string;
   className?: string;
+  size?: 'default' | 'compact';
 }
 
 /**
@@ -26,10 +28,12 @@ export function Segmented<T extends string>({
   onChange,
   ariaLabel,
   className,
+  size = 'default',
 }: SegmentedProps<T>) {
   const count = options.length;
   const selectedIndex = Math.max(0, options.findIndex((o) => o.value === value));
   const btnRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const isCompact = size === 'compact';
 
   const move = (dir: 1 | -1) => {
     const next = (selectedIndex + dir + count) % count;
@@ -41,14 +45,19 @@ export function Segmented<T extends string>({
     <div
       role="radiogroup"
       aria-label={ariaLabel}
-      className={cn('relative isolate grid w-full rounded-2xl bg-muted p-1', className)}
+      className={cn(
+        'relative isolate grid bg-muted p-1',
+        isCompact ? 'h-8 w-fit rounded-full' : 'w-full rounded-2xl',
+        className,
+      )}
       style={{ gridTemplateColumns: `repeat(${count}, minmax(0, 1fr))` }}
     >
       {/* Sliding "liquid" pill */}
       <span
         aria-hidden="true"
         className={cn(
-          'pointer-events-none absolute inset-y-1 z-0 rounded-xl bg-card shadow-soft',
+          'pointer-events-none absolute inset-y-1 z-0 bg-card shadow-soft dark:bg-muted-foreground/70 dark:shadow-none',
+          isCompact ? 'rounded-full' : 'rounded-xl',
           'transition-transform duration-300 ease-[cubic-bezier(0.34,1.4,0.5,1)] motion-reduce:transition-none',
         )}
         style={{
@@ -74,16 +83,32 @@ export function Segmented<T extends string>({
               else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
             }}
             className={cn(
-              'relative z-10 flex min-h-11 flex-col items-center justify-center rounded-xl px-3 py-2 text-center outline-none transition-colors duration-200',
+              'relative z-10 flex items-center justify-center text-center outline-none transition-colors duration-200',
               'focus-visible:ring-2 focus-visible:ring-brand/40',
+              isCompact ? 'h-6 min-w-8 rounded-full px-2' : 'min-h-11 flex-col rounded-xl px-3 py-2',
               selected ? 'text-foreground' : 'text-muted-foreground hover:text-foreground/80',
             )}
           >
-            <span className={cn('truncate text-[13px]', selected ? 'font-semibold' : 'font-medium')}>
+            {opt.icon && (
+              <span className={cn('grid place-items-center', isCompact ? '[&_svg]:size-3.5' : 'mb-1 [&_svg]:size-4')}>
+                {opt.icon}
+              </span>
+            )}
+            <span
+              lang={hasCjk(opt.label) ? 'zh-CN' : undefined}
+              className={cn(
+                'truncate',
+                isCompact ? 'sr-only' : 'text-[13px]',
+                selected ? 'font-semibold' : 'font-medium',
+              )}
+            >
               {opt.label}
             </span>
-            {opt.sublabel && (
-              <span className="mt-0.5 truncate text-[11px] font-normal text-muted-foreground/70">
+            {!isCompact && opt.sublabel && (
+              <span
+                lang={hasCjk(opt.sublabel) ? 'zh-CN' : undefined}
+                className="mt-0.5 truncate text-[11px] font-normal text-muted-foreground/70"
+              >
                 {opt.sublabel}
               </span>
             )}

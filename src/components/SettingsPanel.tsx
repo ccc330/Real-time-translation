@@ -5,6 +5,7 @@ import { Segmented, type SegmentedOption } from '@/components/ui/segmented';
 import type { TranslationProvider, TranslationProviderOption } from '@/types';
 import { CircleHelp } from 'lucide-react';
 import { SEGMENT_DELAY_MAX_MS, SEGMENT_DELAY_MIN_MS, SEGMENT_DELAY_STEP_MS } from '@/segment';
+import { hasCjk } from '@/lib/utils';
 
 interface SettingsPanelProps {
   open: boolean;
@@ -41,11 +42,19 @@ const providerTag = (provider: TranslationProviderOption): string => {
   return provider.model;
 };
 
+function SettingSection({ children }: { children: ReactNode }) {
+  return (
+    <div className="rounded-2xl border border-border/70 bg-background/70 px-4 py-3.5 shadow-[0_1px_0_oklch(1_0_0_/_0.45)_inset] dark:border-black/35 dark:shadow-none">
+      {children}
+    </div>
+  );
+}
+
 function Row({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="flex items-center justify-between rounded-2xl bg-muted px-4 py-3.5">
-      <span className="text-sm font-medium text-foreground">{label}</span>
-      <span className="text-sm text-muted-foreground">{value}</span>
+    <div className="flex items-center justify-between rounded-2xl border border-border/70 bg-background/70 px-4 py-3.5 dark:border-black/35">
+      <span lang="zh-CN" className="text-sm font-medium text-foreground">{label}</span>
+      <span lang={typeof value === 'string' && hasCjk(value) ? 'zh-CN' : undefined} className="text-sm text-muted-foreground">{value}</span>
     </div>
   );
 }
@@ -68,14 +77,14 @@ export function SettingsPanel({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-5 rounded-3xl bg-card p-5 shadow-soft-lg ring-0 sm:max-w-md">
-        <DialogTitle className="text-[13px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/70">
+      <DialogContent className="gap-4 rounded-3xl border border-border/70 bg-card p-5 shadow-soft-lg ring-0 sm:max-w-md">
+        <DialogTitle lang="zh-CN" className="text-[13px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/70">
           设置
         </DialogTitle>
 
-        <div className="rounded-2xl bg-muted px-4 py-3.5">
+        <SettingSection>
           <div className="mb-4 flex items-center justify-between gap-3">
-            <span className="text-sm font-medium text-foreground">断句颗粒度</span>
+            <span lang="zh-CN" className="text-sm font-medium text-foreground">断句颗粒度</span>
             <CircleHelp className="size-3.5 shrink-0 text-muted-foreground/45" aria-hidden="true" />
           </div>
 
@@ -92,11 +101,11 @@ export function SettingsPanel({
             aria-label="断句颗粒度"
             aria-valuetext={`${segment} 毫秒`}
           />
-        </div>
+        </SettingSection>
 
-        <div className="rounded-2xl bg-muted px-4 py-3.5">
+        <SettingSection>
           <div className="mb-3 flex items-baseline justify-between gap-3">
-            <span className="text-sm font-medium text-foreground">翻译引擎</span>
+            <span lang="zh-CN" className="text-sm font-medium text-foreground">翻译引擎</span>
             <span className="truncate text-[12px] text-muted-foreground">
               {prettyTranslateModel(selectedModel)}
             </span>
@@ -114,11 +123,11 @@ export function SettingsPanel({
           />
 
           {!selectedProvider?.configured && (
-            <p className="mt-2 text-[11px] text-muted-foreground/70">
+            <p lang="zh-CN" className="mt-2 text-[11px] text-muted-foreground/70">
               当前引擎未配置 Key 时，会回退到 Soniox 内置翻译。
             </p>
           )}
-        </div>
+        </SettingSection>
 
         <Row label="语音识别" value={mock ? '演示模式' : (sttModel ?? '—')} />
       </DialogContent>
