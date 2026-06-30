@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
 
 import type { Session } from './src/server/types';
+import { isTranslationProvider, type TranslationProvider } from './src/types';
 import { startMockInterval } from './src/server/mock';
 import { startSonioxSession } from './src/server/sonioxSession';
 import { createTranslator, Translator } from './src/server/translator';
@@ -41,19 +42,34 @@ const MAX_SESSION_AUDIO_SEC = process.env.MAX_SESSION_AUDIO_SEC
 
 const sonioxKey = () => (process.env.SONIOX_API_KEY || '').trim();
 
-// Translation provider — OpenAI-compatible. Switch via TRANSLATE_PROVIDER for A/B.
-type ProviderName = 'deepseek' | 'mimo';
-const TRANSLATE_PROVIDER = (process.env.TRANSLATE_PROVIDER || 'mimo').toLowerCase() as ProviderName;
+// Translation provider — OpenAI-compatible. Can be selected per WebSocket session.
+type ProviderName = TranslationProvider;
+type ProviderConfig = {
+  label: string;
+  baseUrl: string;
+  model: string;
+  key: () => string;
+  extraBody?: Record<string, unknown>;
+};
+
+function normalizeProvider(value: unknown, fallback: ProviderName = 'mimo'): ProviderName {
+  const providerName = String(value || '').toLowerCase();
+  return isTranslationProvider(providerName) ? providerName : fallback;
+}
+
+const DEFAULT_TRANSLATE_PROVIDER = normalizeProvider(process.env.TRANSLATE_PROVIDER);
 const PROVIDERS: Record<
   ProviderName,
-  { baseUrl: string; model: string; key: () => string; extraBody?: Record<string, unknown> }
+  ProviderConfig
 > = {
   deepseek: {
+    label: 'DeepSeek V4 Flash',
     baseUrl: 'https://api.deepseek.com',
     model: process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash',
     key: () => (process.env.DEEPSEEK_API_KEY || '').trim(),
   },
   mimo: {
+    label: '小米 MiMo UltraSpeed',
     baseUrl: 'https://api.xiaomimimo.com/v1',
     model: process.env.MIMO_MODEL || 'mimo-v2.5-pro-ultraspeed',
     key: () => (process.env.MIMO_API_KEY || '').trim(),
@@ -62,7 +78,15 @@ const PROVIDERS: Record<
     extraBody: { thinking: { type: 'disabled' } },
   },
 };
-const provider = () => PROVIDERS[TRANSLATE_PROVIDER] ?? PROVIDERS.deepseek;
+
+const provider = (name: ProviderName = DEFAULT_TRANSLATE_PROVIDER) => PROVIDERS[name];
+const providerOptions = () =>
+  (Object.entries(PROVIDERS) as [ProviderName, ProviderConfig][]).map(([id, p]) => ({
+    id,
+    label: p.label,
+    model: p.model,
+    configured: !!p.key(),
+  }));
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -76,6 +100,8 @@ app.get('/api/config', (req, res) => {
   res.json({
     mock: !sonioxKey(),
     sttModel: sonioxKey() ? 'stt-rt-v5' : null,
+    translateProvider: DEFAULT_TRANSLATE_PROVIDER,
+    translateProviders: providerOptions(),
     translateModel: p.key() ? p.model : (sonioxKey() ? 'soniox-builtin' : null),
   });
 });
@@ -119,7 +145,8 @@ wss.on('connection', (ws) => {
         return;
       }
 
-      const p = provider();
+      const requestedProvider = normalizeProvider(msg.translateProvider, DEFAULT_TRANSLATE_PROVIDER);
+      const p = provider(requestedProvider);
       const tKey = p.key();
       const translator: Translator | null = tKey
         ? createTranslator({
@@ -132,8 +159,8 @@ wss.on('connection', (ws) => {
           })
         : null;
       console.log(tKey
-        ? `Translation provider: ${TRANSLATE_PROVIDER} (${p.model})`
-        : `No key for provider "${TRANSLATE_PROVIDER}". Using Soniox built-in translation only.`);
+        ? `Translation provider: ${requestedProvider} (${p.model})`
+        : `No key for provider "${requestedProvider}". Using Soniox built-in translation only.`);
 
       session = startSonioxSession(ws, {
         sonioxKey: sKey,

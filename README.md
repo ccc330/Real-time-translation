@@ -16,9 +16,11 @@ VAD only streams speech, keeping STT cost low.
    `npm install`
 2. Copy `.env.example` to `.env` and set your keys:
    - `SONIOX_API_KEY` — required for live mode (else the app runs a no-key demo).
-   - `MIMO_API_KEY` — translation (default provider). Without it (and no DeepSeek key),
-     translation falls back to Soniox's built-in two-way translation.
-   - To switch provider: `TRANSLATE_PROVIDER=deepseek` + `DEEPSEEK_API_KEY`.
+   - `MIMO_API_KEY` and/or `DEEPSEEK_API_KEY` — translation providers. Without the
+     selected provider's key, translation falls back to Soniox's built-in two-way
+     translation.
+   - `TRANSLATE_PROVIDER` sets the default provider. You can switch between
+     DeepSeek V4 Flash and Xiaomi MiMo from the app's top-right settings panel.
 3. Run the app:
    `npm run dev`
 
